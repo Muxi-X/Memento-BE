@@ -1,0 +1,2635 @@
+﻿openapi: 3.0.3
+info:
+  title: cixing api
+  version: 1.0.0
+  description: |
+    Cixing ("姝よ") API V1.0.
+
+servers:
+  - url: /
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Official
+  - name: Review
+  - name: CustomKeywords
+  - name: UploadSessions
+  - name: Reactions
+  - name: Me
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  headers:
+    X-Request-ID:
+      description: Correlation id for tracing.
+      schema:
+        type: string
+
+  parameters:
+    XRequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+      description: Optional client-provided request id for tracing.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+      description: Optional idempotency key.
+
+  responses:
+    BadRequest:
+      description: Bad Request (validation failed)
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+    Unauthorized:
+      description: Unauthorized
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not Found
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal Server Error
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ErrorCode:
+      type: string
+      enum: [validation, unauthorized, forbidden, not_found, conflict, feature_not_ready, internal]
+
+    ErrorResponse:
+      type: object
+      required: [code, reason, message, request_id]
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        reason:
+          type: string
+          example: "common.unauthorized"
+        message:
+          type: string
+        request_id:
+          type: string
+
+    ValidationErrorDetail:
+      type: object
+      required: [field, rule, reason]
+      properties:
+        field:
+          type: string
+          example: "email"
+        rule:
+          type: string
+          example: "email"
+        reason:
+          type: string
+          example: "invalid format"
+
+    ValidationErrorResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [validation]
+            details:
+              type: array
+              items:
+                $ref: "#/components/schemas/ValidationErrorDetail"
+
+    # ---- Common Enums ----
+    KeywordCategory:
+      type: string
+      enum: [emotion, color, shape, time, abstract]
+
+    PromptKind:
+      type: string
+      enum: [intuition, structure, concept]
+
+    ReactionType:
+      type: string
+      enum: [inspired, resonated]
+
+    NotificationType:
+      type: string
+      enum: [reaction_received]
+
+    # ---- Auth ----
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+
+    EmailCodeRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: '^[0-9]{6}$'
+
+    SignupVerifyResponse:
+      type: object
+      required: [signup_token]
+      properties:
+        signup_token:
+          type: string
+
+    SignupCompleteRequest:
+      type: object
+      required: [signup_token, password]
+      properties:
+        signup_token:
+          type: string
+          minLength: 16
+        password:
+          type: string
+          minLength: 8
+
+    LoginPasswordRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+
+    ResetVerifyResponse:
+      type: object
+      required: [reset_token]
+      properties:
+        reset_token:
+          type: string
+
+    ResetCompleteRequest:
+      type: object
+      required: [reset_token, new_password]
+      properties:
+        reset_token:
+          type: string
+          minLength: 16
+        new_password:
+          type: string
+          minLength: 8
+
+    AuthToken:
+      type: object
+      required: [access_token, token_type]
+      properties:
+        token_type:
+          type: string
+          enum: [Bearer]
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+          format: int64
+          nullable: true
+          description: Access token expiry in seconds (optional).
+
+    # ---- Keywords & Prompts ----
+    OfficialKeyword:
+      type: object
+      required: [id, text, category, is_active, display_order]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          minLength: 1
+          maxLength: 50
+        category:
+          $ref: "#/components/schemas/KeywordCategory"
+        is_active:
+          type: boolean
+        display_order:
+          type: integer
+          minimum: 1
+
+    ReactionCounts:
+      type: object
+      required: [inspired, resonated]
+      properties:
+        inspired:
+          type: integer
+          minimum: 0
+        resonated:
+          type: integer
+          minimum: 0
+
+    TodayKeywordResponse:
+      type: object
+      required: [biz_date, keyword, participant_user_count]
+      properties:
+        biz_date:
+          type: string
+          format: date
+        keyword:
+          $ref: "#/components/schemas/OfficialKeyword"
+        participant_user_count:
+          type: integer
+          minimum: 0
+
+    OfficialHomeResponse:
+      type: object
+      required: [today, yesterday]
+      properties:
+        today:
+          $ref: "#/components/schemas/TodayKeywordResponse"
+        yesterday:
+          $ref: "#/components/schemas/TodayKeywordResponse"
+
+    Prompt:
+      type: object
+      required: [id, kind, content]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/PromptKind"
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    DrawPromptRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: "#/components/schemas/PromptKind"
+
+    # ---- Images & Uploads ----
+    ImageVariant:
+      type: object
+      required: [url, width, height]
+      properties:
+        url:
+          type: string
+          format: uri
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+
+    ImageRef:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [original, card_4x3, square_small, square_medium]
+          properties:
+            original:
+              $ref: "#/components/schemas/ImageVariant"
+            card_4x3:
+              $ref: "#/components/schemas/ImageVariant"
+            square_small:
+              $ref: "#/components/schemas/ImageVariant"
+            square_medium:
+              $ref: "#/components/schemas/ImageVariant"
+
+    ImageRefSquareSmall:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [square_small]
+          properties:
+            square_small:
+              $ref: "#/components/schemas/ImageVariant"
+
+    ImageRefSquareMedium:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [square_medium]
+          properties:
+            square_medium:
+              $ref: "#/components/schemas/ImageVariant"
+
+    ImageRefCard4x3:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [card_4x3]
+          properties:
+            card_4x3:
+              $ref: "#/components/schemas/ImageVariant"
+
+    ImageRefOriginal:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [original]
+          properties:
+            original:
+              $ref: "#/components/schemas/ImageVariant"
+
+    ImageRefDetailLarge:
+      type: object
+      required: [id, variants]
+      properties:
+        id:
+          type: string
+          format: uuid
+        variants:
+          type: object
+          required: [detail_large]
+          properties:
+            detail_large:
+              $ref: "#/components/schemas/ImageVariant"
+
+    UploadPublishContextType:
+      type: string
+      enum: [official_today, custom_keyword]
+
+    UploadPublishSessionStatus:
+      type: string
+      enum: [created, committed, canceled, expired]
+
+    UploadPublishSessionItemStatus:
+      type: string
+      enum: [pending_upload, uploaded]
+
+    UploadPublishVisibilityStatus:
+      type: string
+      enum: [processing, visible, hidden, deleted]
+
+    UploadPublishSessionContext:
+      type: object
+      required: [type]
+      properties:
+        type:
+          $ref: "#/components/schemas/UploadPublishContextType"
+        official_keyword_id:
+          type: string
+          format: uuid
+          nullable: true
+        biz_date:
+          type: string
+          format: date
+          nullable: true
+        custom_keyword_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    CreateUploadPublishSessionRequest:
+      type: object
+      required: [context]
+      properties:
+        context:
+          $ref: "#/components/schemas/UploadPublishSessionContext"
+        expected_image_count:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    CreateUploadPublishSessionResponse:
+      type: object
+      required: [session_id, status, expires_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/UploadPublishSessionStatus"
+        expires_at:
+          type: string
+          format: date-time
+
+    UploadPublishSessionItemSummary:
+      type: object
+      required: [item_id, client_image_id, status, is_cover, has_audio]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        client_image_id:
+          type: string
+          minLength: 1
+        status:
+          $ref: "#/components/schemas/UploadPublishSessionItemStatus"
+        display_order:
+          type: integer
+          minimum: 1
+          nullable: true
+        is_cover:
+          type: boolean
+        has_audio:
+          type: boolean
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    UploadPresignedTarget:
+      type: object
+      required: [method, url, object_key, expires_at]
+      properties:
+        method:
+          type: string
+          enum: [PUT]
+        url:
+          type: string
+          format: uri
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        object_key:
+          type: string
+          minLength: 1
+        expires_at:
+          type: string
+          format: date-time
+
+    UploadPublishPresignBatchItemRequest:
+      type: object
+      required: [client_image_id, image_content_type, image_content_length]
+      description: >
+        One batch item represents one image in the upload flow. The item may
+        optionally include one bound audio file. Order, cover choice, title,
+        and note are not submitted here; they are submitted later in
+        complete-batch after client uploads finish.
+      properties:
+        client_image_id:
+          type: string
+          minLength: 1
+        image_content_type:
+          type: string
+          example: image/jpeg
+        image_content_length:
+          type: integer
+          format: int64
+          minimum: 1
+        image_sha256:
+          type: string
+          nullable: true
+        audio_content_type:
+          type: string
+          nullable: true
+          example: audio/aac
+        audio_content_length:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        audio_sha256:
+          type: string
+          nullable: true
+
+    UploadPublishPresignBatchRequest:
+      type: object
+      required: [items]
+      description: >
+        The client calls this once after local editing is done. Each item
+        describes one image and an optional bound audio file to presign for
+        direct upload.
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/UploadPublishPresignBatchItemRequest"
+
+    UploadPublishPresignBatchItemResponse:
+      type: object
+      required: [client_image_id, item_id, image_id, image_upload]
+      properties:
+        client_image_id:
+          type: string
+        item_id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+        image_upload:
+          $ref: "#/components/schemas/UploadPresignedTarget"
+        audio_upload:
+          allOf:
+            - $ref: "#/components/schemas/UploadPresignedTarget"
+          nullable: true
+
+    UploadPublishPresignBatchResponse:
+      type: object
+      required: [session_id, items]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadPublishPresignBatchItemResponse"
+
+    UploadPublishCompleteBatchItemRequest:
+      type: object
+      required: [item_id, image_etag, image_width, image_height, display_order]
+      description: >
+        One completed upload item. This is where the client submits the final
+        metadata for that image in a single round-trip, including optional
+        audio, optional title/note, final order, and optional cover flag.
+      properties:
+        item_id:
+          type: string
+          format: uuid
+          description: Must be unique within one batch request.
+        image_etag:
+          type: string
+          minLength: 1
+        image_width:
+          type: integer
+          minimum: 1
+        image_height:
+          type: integer
+          minimum: 1
+        display_order:
+          type: integer
+          minimum: 1
+          description: Final image order candidate. At commit time all completed items must form a continuous sequence from 1.
+        is_cover:
+          type: boolean
+          nullable: true
+          description: Cover candidate for this item. Across one upload, at most one image can be cover.
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        audio_etag:
+          type: string
+          nullable: true
+        audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    UploadPublishCompleteBatchRequest:
+      type: object
+      required: [items]
+      description: >
+        The client submits all finalized item metadata in one request after all
+        direct uploads succeed. There are no separate cover or reorder APIs.
+      properties:
+        items:
+          type: array
+          minItems: 1
+          description: item_id and display_order should both be unique in the same request.
+          items:
+            $ref: "#/components/schemas/UploadPublishCompleteBatchItemRequest"
+
+    UploadPublishCompleteBatchItemResponse:
+      type: object
+      required: [item_id, status, display_order, is_cover]
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/UploadPublishSessionItemStatus"
+        display_order:
+          type: integer
+        is_cover:
+          type: boolean
+
+    UploadPublishCompleteBatchResponse:
+      type: object
+      required: [session_id, status, items]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/UploadPublishSessionStatus"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadPublishCompleteBatchItemResponse"
+
+    UploadPublishCommitResponse:
+      type: object
+      required: [session_id, upload_id, status, upload_visibility]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        upload_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/UploadPublishSessionStatus"
+        upload_visibility:
+          $ref: "#/components/schemas/UploadPublishVisibilityStatus"
+
+    SetCustomKeywordCoverRequest:
+      type: object
+      required: [image_id]
+      properties:
+        image_id:
+          type: string
+          format: uuid
+
+    SetCustomKeywordCoverResponse:
+      type: object
+      required: [keyword_id, cover_source]
+      properties:
+        keyword_id:
+          type: string
+          format: uuid
+        cover_source:
+          $ref: "#/components/schemas/CustomKeywordCoverSource"
+        cover_image:
+          $ref: "#/components/schemas/ImageRefDetailLarge"
+          nullable: true
+
+    # ---- WorkUploads / WorkImages ----
+    WorkImage:
+      type: object
+      required: [id, image, display_order, has_audio, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        image:
+          $ref: "#/components/schemas/ImageRefDetailLarge"
+        display_order:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        has_audio:
+          type: boolean
+        audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        audio_play_url:
+          type: string
+          format: uri
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    PublicWorkUploadCard:
+      type: object
+      required: [id, biz_date, keyword_id, cover_image, image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        biz_date:
+          type: string
+          format: date
+        keyword_id:
+          type: string
+          format: uuid
+        cover_image:
+          $ref: "#/components/schemas/ImageRefCard4x3"
+        display_text:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: UI text for list card, fallback policy decided by server (title first, else note).
+        cover_has_audio:
+          type: boolean
+          nullable: true
+        cover_audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        image_count:
+          type: integer
+          minimum: 1
+        reaction_counts:
+          $ref: "#/components/schemas/ReactionCounts"
+          nullable: true
+        my_reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReactionType"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    PublicWorkUploadDetail:
+      allOf:
+        - $ref: "#/components/schemas/PublicWorkUploadCard"
+        - type: object
+          required: [images]
+          properties:
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkImage"
+
+    ListPublicUploadsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicWorkUploadCard"
+        seed:
+          type: number
+          format: double
+          nullable: true
+
+    MyWorkUploadCard:
+      type: object
+      required: [id, biz_date, keyword_id, cover_image, image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        biz_date:
+          type: string
+          format: date
+        keyword_id:
+          type: string
+          format: uuid
+        cover_image:
+          $ref: "#/components/schemas/ImageRefCard4x3"
+        display_text:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: UI text for list card, fallback policy decided by server (title first, else note).
+        cover_has_audio:
+          type: boolean
+          nullable: true
+        cover_audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        image_count:
+          type: integer
+          minimum: 1
+        reaction_counts:
+          $ref: "#/components/schemas/ReactionCounts"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    MyWorkUploadDetail:
+      allOf:
+        - $ref: "#/components/schemas/MyWorkUploadCard"
+        - type: object
+          required: [images]
+          properties:
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkImage"
+
+    ListMyUploadsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyWorkUploadCard"
+
+    CustomKeywordCoverSource:
+      type: string
+      enum: [auto_latest, manual]
+
+    CustomKeywordImageCard:
+      type: object
+      required: [id, image, display_order, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        image:
+          $ref: "#/components/schemas/ImageRefSquareMedium"
+        display_order:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+
+    ListCustomKeywordImagesResponse:
+      type: object
+      required: [cover_source, items]
+      properties:
+        cover_source:
+          $ref: "#/components/schemas/CustomKeywordCoverSource"
+        cover_image:
+          $ref: "#/components/schemas/ImageRefDetailLarge"
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordImageCard"
+
+    CustomKeywordImageDetail:
+      type: object
+      required: [id, custom_keyword_id, image, display_order, has_audio, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        custom_keyword_id:
+          type: string
+          format: uuid
+        image:
+          $ref: "#/components/schemas/ImageRefDetailLarge"
+        display_order:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        has_audio:
+          type: boolean
+        audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        audio_play_url:
+          type: string
+          format: uri
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ReviewMyWorkUploadCard:
+      type: object
+      required: [id, biz_date, keyword_id, cover_image, image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        biz_date:
+          type: string
+          format: date
+        keyword_id:
+          type: string
+          format: uuid
+        cover_image:
+          $ref: "#/components/schemas/ImageRefCard4x3"
+        display_text:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: UI text for list card, fallback policy decided by server (title first, else note).
+        cover_has_audio:
+          type: boolean
+          nullable: true
+        cover_audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        image_count:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+
+    ReviewMyWorkUploadDetail:
+      allOf:
+        - $ref: "#/components/schemas/ReviewMyWorkUploadCard"
+        - type: object
+          required: [images]
+          properties:
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkImage"
+
+    ListReviewMyUploadsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewMyWorkUploadCard"
+
+    MyUploadDateItem:
+      type: object
+      required: [biz_date, keyword]
+      properties:
+        biz_date:
+          type: string
+          format: date
+        keyword:
+          $ref: "#/components/schemas/OfficialKeyword"
+        my_upload_count:
+          type: integer
+          minimum: 0
+          nullable: true
+        my_image_count:
+          type: integer
+          minimum: 0
+          nullable: true
+
+    MyOfficialKeywordUploadCountItem:
+      type: object
+      required: [keyword, my_upload_count, my_image_count]
+      properties:
+        keyword:
+          $ref: "#/components/schemas/OfficialKeyword"
+        my_upload_count:
+          type: integer
+          minimum: 0
+        my_image_count:
+          type: integer
+          minimum: 0
+
+    ListMyOfficialKeywordUploadCountsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyOfficialKeywordUploadCountItem"
+
+    ListMyUploadDatesResponse:
+      type: object
+      required: [items, total_participation_days, total_image_count]
+      properties:
+        total_participation_days:
+          type: integer
+          minimum: 0
+        total_image_count:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyUploadDateItem"
+
+    MeHomeResponse:
+      type: object
+      required:
+        [nickname, avatar_url, official_image_count, custom_image_count, custom_keywords, unread_notification_count]
+      properties:
+        nickname:
+          type: string
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        official_image_count:
+          type: integer
+          minimum: 0
+        custom_image_count:
+          type: integer
+          minimum: 0
+        custom_keywords:
+          type: array
+          items:
+            $ref: "#/components/schemas/MeHomeCustomKeywordItem"
+        unread_notification_count:
+          type: integer
+          minimum: 0
+
+    MeHomeCustomKeywordItem:
+      type: object
+      required: [id, text, total_image_count, my_image_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          maxLength: 80
+        target_image_count:
+          type: integer
+          minimum: 1
+          nullable: true
+        total_image_count:
+          type: integer
+          minimum: 0
+        my_image_count:
+          type: integer
+          minimum: 0
+        cover_image:
+          $ref: "#/components/schemas/ImageRefSquareSmall"
+          nullable: true
+
+    MeNotificationSettings:
+      type: object
+      required: [reaction_enabled]
+      properties:
+        reaction_enabled:
+          type: boolean
+
+    MeProfile:
+      type: object
+      required: [nickname]
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          nullable: true
+
+    MeSettings:
+      type: object
+      required: [profile, notifications]
+      properties:
+        profile:
+          $ref: "#/components/schemas/MeProfile"
+        notifications:
+          $ref: "#/components/schemas/MeNotificationSettings"
+
+    UpdateMeNicknameRequest:
+      type: object
+      required: [nickname]
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+
+    UpdateMeNotificationSettingsRequest:
+      type: object
+      required: [reaction_enabled]
+      properties:
+        reaction_enabled:
+          type: boolean
+
+    NotificationCoverImage:
+      type: object
+      required: [square_small]
+      properties:
+        square_small:
+          $ref: "#/components/schemas/ImageVariant"
+
+    Notification:
+      type: object
+      required: [id, type, upload_id, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        reaction_type:
+          $ref: "#/components/schemas/ReactionType"
+          nullable: true
+        upload_id:
+          type: string
+          format: uuid
+        actor_avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        cover_image:
+          $ref: "#/components/schemas/NotificationCoverImage"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ListMyNotificationsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+
+    CustomKeywordItem:
+      type: object
+      required: [id, text, is_active, total_image_count, my_image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          maxLength: 80
+        target_image_count:
+          type: integer
+          minimum: 1
+          nullable: true
+        is_active:
+          type: boolean
+        total_image_count:
+          type: integer
+          minimum: 0
+        my_image_count:
+          type: integer
+          minimum: 0
+        cover_image:
+          $ref: "#/components/schemas/ImageRefSquareSmall"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ListCustomKeywordsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordItem"
+
+    CreateCustomKeywordRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 80
+        target_image_count:
+          type: integer
+          minimum: 1
+          nullable: true
+
+    UpdateCustomKeywordRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 80
+        target_image_count:
+          type: integer
+          minimum: 1
+          nullable: true
+        is_active:
+          type: boolean
+
+    # ---- Reactions ----
+    CreateReactionRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          $ref: "#/components/schemas/ReactionType"
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      operationId: healthz
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+
+  # ---- Auth ----
+
+  /v1/auth/signup/email/send_code:
+    post:
+      tags: [Auth]
+      operationId: sendSignupEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/signup/email/verify_code:
+    post:
+      tags: [Auth]
+      operationId: verifySignupEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupVerifyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/signup/complete:
+    post:
+      tags: [Auth]
+      operationId: signupComplete
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupCompleteRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/login/password:
+    post:
+      tags: [Auth]
+      operationId: loginByPassword
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginPasswordRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/login/email/send_code:
+    post:
+      tags: [Auth]
+      operationId: sendLoginEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/login/email/verify_code:
+    post:
+      tags: [Auth]
+      operationId: loginByEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/password_reset/email/send_code:
+    post:
+      tags: [Auth]
+      operationId: sendResetEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/password_reset/email/verify_code:
+    post:
+      tags: [Auth]
+      operationId: verifyResetEmailCode
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetVerifyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/auth/password_reset/complete:
+    post:
+      tags: [Auth]
+      operationId: resetComplete
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetCompleteRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Official ----
+
+  /v1/official/home:
+    get:
+      tags: [Official]
+      operationId: getOfficialHome
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Optional base biz_date (defaults to today). Response includes base day as today and previous day as yesterday.
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OfficialHomeResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/official/keywords/{keyword_id}/prompts/draw:
+    post:
+      tags: [Official]
+      operationId: drawOfficialPrompt
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DrawPromptRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prompt"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Upload publish sessions (Object storage direct upload) ----
+
+  /v1/uploads/publish-sessions:
+    post:
+      tags: [UploadSessions]
+      operationId: createUploadPublishSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUploadPublishSessionRequest"
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateUploadPublishSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/uploads/publish-sessions/{session_id}/assets/presign-batch:
+    post:
+      tags: [UploadSessions]
+      operationId: presignUploadPublishSessionAssetsBatch
+      description: >
+        Presign direct uploads for a batch of images. Each batch item may
+        optionally include one audio file bound to that image.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadPublishPresignBatchRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPublishPresignBatchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/uploads/publish-sessions/{session_id}/assets/complete-batch:
+    post:
+      tags: [UploadSessions]
+      operationId: completeUploadPublishSessionAssetsBatch
+      description: >
+        Complete the batch after direct uploads succeed. This request submits
+        final per-image metadata in one shot, including display_order,
+        optional is_cover, optional title/note, and optional audio metadata.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadPublishCompleteBatchRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPublishCompleteBatchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/uploads/publish-sessions/{session_id}/commit:
+    post:
+      tags: [UploadSessions]
+      operationId: commitUploadPublishSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPublishCommitResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Custom Keywords ----
+
+  /v1/custom-keywords:
+    get:
+      tags: [CustomKeywords]
+      operationId: listCustomKeywords
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListCustomKeywordsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [CustomKeywords]
+      operationId: createCustomKeyword
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomKeywordRequest"
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomKeywordItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/custom-keywords/{keyword_id}:
+    patch:
+      tags: [CustomKeywords]
+      operationId: updateCustomKeyword
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomKeywordRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomKeywordItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [CustomKeywords]
+      operationId: deleteCustomKeyword
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/custom-keywords/{keyword_id}/images:
+    get:
+      tags: [CustomKeywords]
+      operationId: listCustomKeywordImages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListCustomKeywordImagesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/custom/images/{image_id}:
+    get:
+      tags: [CustomKeywords]
+      operationId: getCustomImage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: image_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomKeywordImageDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/custom-keywords/{keyword_id}/cover:
+    patch:
+      tags: [CustomKeywords]
+      operationId: setCustomKeywordCover
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCustomKeywordCoverRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetCustomKeywordCoverResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [CustomKeywords]
+      operationId: clearCustomKeywordCover
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetCustomKeywordCoverResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Review ----
+
+  /v1/review/dates:
+    get:
+      tags: [Review]
+      operationId: listReviewDates
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMyUploadDatesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/review/keywords:
+    get:
+      tags: [Review]
+      operationId: listReviewKeywords
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMyOfficialKeywordUploadCountsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/review/dates/uploads/my:
+    get:
+      tags: [Review]
+      operationId: listReviewMyUploadsByDate
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: biz_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListReviewMyUploadsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/review/uploads/{upload_id}:
+    get:
+      tags: [Review]
+      operationId: getReviewUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewMyWorkUploadDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/review/keywords/{keyword_id}/uploads/my:
+    get:
+      tags: [Review]
+      operationId: listReviewMyUploadsByKeyword
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListReviewMyUploadsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/review/keywords/{keyword_id}/uploads/all:
+    get:
+      tags: [Review]
+      operationId: listReviewAllUploadsByKeyword
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [latest, random]
+            default: latest
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: seed
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+        - name: include_reaction_counts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPublicUploadsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Me ----
+
+  /v1/me/home:
+    get:
+      tags: [Me]
+      operationId: getMeHome
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeHomeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/settings:
+    get:
+      tags: [Me]
+      operationId: getMeSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/settings/notifications:
+    patch:
+      tags: [Me]
+      operationId: updateMeNotificationSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeNotificationSettingsRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/profile/nickname:
+    patch:
+      tags: [Me]
+      operationId: updateMeNickname
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeNicknameRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/notifications:
+    get:
+      tags: [Me]
+      operationId: listMeNotifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListMyNotificationsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/notifications/read:
+    patch:
+      tags: [Me]
+      operationId: markAllMeNotificationsRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Official Browse ----
+
+  /v1/official/dates/{biz_date}/uploads:
+    get:
+      tags: [Official]
+      operationId: listOfficialDateUploads
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: biz_date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [latest, random]
+            default: latest
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: seed
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+        - name: include_reaction_counts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Whether to include reaction_counts in response items.
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPublicUploadsResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/official/uploads/{upload_id}:
+    get:
+      tags: [Official]
+      operationId: getOfficialUpload
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: include_reaction_counts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicWorkUploadDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Reactions ----
+
+  /v1/reactions/uploads/{upload_id}:
+    put:
+      tags: [Reactions]
+      operationId: reactToUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReactionRequest"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+
+  /v1/reactions/uploads/{upload_id}/{type}:
+    delete:
+      tags: [Reactions]
+      operationId: unreactToUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/ReactionType"
+      responses:
+        "204":
+          description: No Content
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+

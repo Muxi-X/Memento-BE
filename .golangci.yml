@@ -1,0 +1,24 @@
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - internal/transport/http/v1/gen
+  skip-files:
+    - ".*\\.gen\\.go"
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - ineffassign
+    - typecheck
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -1,0 +1,122 @@
+version: "2"
+
+sql:
+  - engine: "postgresql"
+    schema: &core_schema
+      - "db/migrations/000001_core.up.sql"
+    queries:
+      - "internal/modules/auth/infra/db/query/*.sql"
+    gen:
+      go: &go_defaults
+        out: "internal/modules/auth/infra/db/gen"
+        package: "authdb"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_enum_valid_method: true
+        overrides: &common_overrides
+          - db_type: "uuid"
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "keyword_category"
+            go_type: "string"
+          - db_type: "prompt_kind"
+            go_type: "string"
+          - db_type: "reaction_type"
+            go_type: "string"
+          - db_type: "notification_type"
+            go_type: "string"
+          - db_type: "media_kind"
+            go_type: "string"
+          - db_type: "media_asset_status"
+            go_type: "string"
+          - db_type: "media_variant_status"
+            go_type: "string"
+          - db_type: "publish_context_type"
+            go_type: "string"
+          - db_type: "publish_session_status"
+            go_type: "string"
+          - db_type: "publish_session_item_status"
+            go_type: "string"
+          - db_type: "work_upload_visibility_status"
+            go_type: "string"
+          - db_type: "avatar_upload_session_status"
+            go_type: "string"
+          - db_type: "custom_keyword_cover_mode"
+            go_type: "string"
+          - db_type: "custom_keyword_status"
+            go_type: "string"
+          - db_type: "job_status"
+            go_type: "string"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/official/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/official/infra/db/gen"
+        package: "officialdb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/publishing/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/publishing/infra/db/gen"
+        package: "publishingdb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/social/infra/db/query/reaction.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/social/infra/db/gen"
+        package: "socialdb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/customkeywords/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/customkeywords/infra/db/gen"
+        package: "customkeywordsdb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/profile/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/profile/infra/db/gen"
+        package: "profiledb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/media/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/media/infra/db/gen"
+        package: "mediadb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/readmodel/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/readmodel/infra/db/gen"
+        package: "readmodeldb"

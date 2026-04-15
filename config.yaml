@@ -1,0 +1,62 @@
+# Replace every "change-me" value and the JWT PEM blocks before running the app.
+
+app:
+  env: local
+
+logging:
+  log_level: info
+  log_add_source: false
+
+http:
+  addr: ":8080"
+
+postgres:
+  dsn: "postgres://postgres:postgres@127.0.0.1:5432/cixing?sslmode=disable"
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+oss:
+  credential_mode: "static"
+  ecs_role_name: "CixingEcsOssUploadRole"
+  disable_imdsv1: true
+  bucket: "change-me"
+  region: "cn-hongkong"
+  access_key_id: ""
+  access_key_secret: ""
+  public_endpoint: ""
+  public_endpoint_is_cname: false
+  internal_endpoint: ""
+  internal_endpoint_is_cname: false
+  use_internal_endpoint: false
+  put_presign_expire: 15m
+  get_presign_expire: 10m
+  upload_prefix: "uploads/"
+  styles:
+    card_4x3: "card_4x3"
+    square_small: "square_small"
+    square_medium: "square_medium"
+    detail_large: "detail_large"
+
+jwt:
+  private_key_pem: |-
+    -----BEGIN PRIVATE KEY-----
+    change-me
+    -----END PRIVATE KEY-----
+  public_key_pem: |-
+    -----BEGIN PUBLIC KEY-----
+    change-me
+    -----END PUBLIC KEY-----
+
+auth:
+  hash_pepper: "change-me"
+
+email:
+  addr: "127.0.0.1:1025"
+  username: ""
+  password: ""
+  from: "no-reply@cixing.local"
+  reply_to: ""
+  use_tls: false

@@ -1,0 +1,35 @@
+# 构建产物
+/bin/
+/dist/
+/coverage/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.coverprofile
+*.prof
+
+# 临时文件与缓存
+/tmp/
+/.cache/
+/.gocache/
+/.gotmp/
+*.log
+
+# 本地私有配置
+.env
+.env.*
+!.env.example
+!.env.*.example
+config.local.yaml
+config.*.local.yaml
+configs/config.local.yaml
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+/docs/
