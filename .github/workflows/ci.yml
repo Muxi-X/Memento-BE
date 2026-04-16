@@ -20,6 +20,8 @@ concurrency:
 env:
   GO_VERSION_FILE: go.mod
   MAKEFILE_PATH: Makefile/makefile
+  # Use goinstall mode below so the built Go version
+  # is not lower than the repo's targeted Go version.
   GOLANGCI_LINT_VERSION: v1.64.8
 
 jobs:
@@ -49,6 +51,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-mode: goinstall
 
       - name: Lint
         run: make -f "${MAKEFILE_PATH}" lint
