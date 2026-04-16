@@ -116,7 +116,7 @@ func (s *Storage) Get(ctx context.Context, bucket, key string) ([]byte, string, 
 		}
 		return nil, "", err
 	}
-	defer result.Body.Close()
+	defer func() { _ = result.Body.Close() }()
 
 	// 读取对象内容并返回
 	body, err := io.ReadAll(result.Body)

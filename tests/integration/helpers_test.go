@@ -43,7 +43,7 @@ func openIntegrationDB(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("connect admin db: %v", err)
 	}
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 
 	dbName := fmt.Sprintf("cixing_it_%d", time.Now().UnixNano())
 	if _, err := adminConn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
@@ -64,7 +64,7 @@ func openIntegrationDB(t *testing.T) *pgxpool.Pool {
 		if err != nil {
 			t.Fatalf("reconnect admin db for cleanup: %v", err)
 		}
-		defer adminConn.Close(context.Background())
+		defer func() { _ = adminConn.Close(context.Background()) }()
 
 		if _, err := adminConn.Exec(context.Background(), "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", dbName); err != nil {
 			t.Fatalf("terminate test db connections: %v", err)
