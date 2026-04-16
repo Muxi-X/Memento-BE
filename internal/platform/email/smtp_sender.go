@@ -119,7 +119,7 @@ func (s *SMTPSender) send(ctx context.Context, from, toEmail string, msg []byte)
 	if err != nil {
 		return fmt.Errorf("smtp: new client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// 不使用 TLS 时，如果服支持 STARTTLS，尝试 STARTTLS
 	if !s.UseTLS {

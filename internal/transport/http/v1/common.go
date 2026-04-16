@@ -5,7 +5,6 @@ import (
 	"github.com/google/uuid"
 
 	"cixing/internal/transport/http/server/middleware"
-	"cixing/internal/transport/http/server/response"
 )
 
 func bindJSON(c *gin.Context, dst any) bool {
@@ -14,10 +13,6 @@ func bindJSON(c *gin.Context, dst any) bool {
 		return false
 	}
 	return true
-}
-
-func writeFeatureNotReady(c *gin.Context) {
-	writeAppError(c, response.FeatureNotReady, "common.feature_not_ready", "feature not ready", nil)
 }
 
 func userIDFromContext(c *gin.Context) (uuid.UUID, bool) {

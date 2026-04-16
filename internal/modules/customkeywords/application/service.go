@@ -448,13 +448,6 @@ func clampLimit(v, defaultValue, maxValue int) int32 {
 	return int32(v)
 }
 
-func int32Value(v *int32) int32 {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
 func (s *Service) resolve(key string) string {
 	if s.resolver == nil || strings.TrimSpace(key) == "" {
 		return ""

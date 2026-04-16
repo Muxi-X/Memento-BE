@@ -95,7 +95,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	// 初始化 EmailSender
 	sender, err := platformemail.NewSender(cfg.Email)

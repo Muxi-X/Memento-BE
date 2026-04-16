@@ -43,7 +43,7 @@ func openIntegrationDB(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("connect admin db: %v", err)
 	}
-	defer adminConn.Close(ctx)
+	defer func() { _ = adminConn.Close(ctx) }()
 
 	dbName := fmt.Sprintf("cixing_it_%d", time.Now().UnixNano())
 	if _, err := adminConn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
@@ -64,7 +64,7 @@ func openIntegrationDB(t *testing.T) *pgxpool.Pool {
 		if err != nil {
 			t.Fatalf("reconnect admin db for cleanup: %v", err)
 		}
-		defer adminConn.Close(context.Background())
+		defer func() { _ = adminConn.Close(context.Background()) }()
 
 		if _, err := adminConn.Exec(context.Background(), "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", dbName); err != nil {
 			t.Fatalf("terminate test db connections: %v", err)
@@ -144,6 +144,26 @@ func seedOfficialKeyword(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if _, err := pool.Exec(ctx, `INSERT INTO official_keywords (id, text, category, is_active, display_order) VALUES ($1, $2, 'emotion', TRUE, 999)`, keywordID, text); err != nil {
 		t.Fatalf("insert official_keywords: %v", err)
 	}
+}
+
+func seedDailyKeywordAssignment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, keywordID uuid.UUID, bizDate time.Time) {
+	t.Helper()
+
+	bizDate = dateOnly(bizDate)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO daily_keyword_assignments (biz_date, keyword_id)
+VALUES ($1, $2)
+ON CONFLICT (biz_date) DO UPDATE SET keyword_id = EXCLUDED.keyword_id
+`, bizDate, keywordID); err != nil {
+		t.Fatalf("upsert daily_keyword_assignments: %v", err)
+	}
+}
+
+func seedOfficialKeywordAsDaily(t *testing.T, ctx context.Context, pool *pgxpool.Pool, keywordID uuid.UUID, text string, bizDate time.Time) {
+	t.Helper()
+
+	seedOfficialKeyword(t, ctx, pool, keywordID, text, bizDate)
+	seedDailyKeywordAssignment(t, ctx, pool, keywordID, bizDate)
 }
 
 func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want int) {

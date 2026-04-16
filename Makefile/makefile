@@ -5,6 +5,11 @@ API_MAIN    := ./cmd/cixing-api
 
 BIN_DIR := bin
 
+# When this makefile is invoked via `make -f Makefile/makefile`, any recursive
+# `$(MAKE)` call must also pass `-f` (otherwise GNU Make will look for `Makefile`
+# in the cwd, but this repo uses the `Makefile/` directory).
+SELF_MAKEFILE := $(lastword $(MAKEFILE_LIST))
+
 ifeq ($(OS),Windows_NT)
 PWSH      := powershell -NoProfile -ExecutionPolicy Bypass -Command
 MKDIR_BIN := powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(BIN_DIR)' | Out-Null"
@@ -87,10 +92,10 @@ gen-openapi:
 	powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\gen_openapi.ps1
 else
 gen-sqlc:
-	./scripts/gen_sqlc.sh
+	bash ./scripts/gen_sqlc.sh
 
 gen-openapi:
-	./scripts/gen_openapi.sh
+	bash ./scripts/gen_openapi.sh
 endif
 
 # ---------- Lint ----------
@@ -153,7 +158,7 @@ it:
 	$(PWSH) "$$ErrorActionPreference='Stop'; $$testExit = 0; docker compose -f '$(COMPOSE_TEST)' up -d --wait; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; try { go test ./tests/integration/...; $$testExit = $$LASTEXITCODE } finally { docker compose -f '$(COMPOSE_TEST)' down -v; $$downExit = $$LASTEXITCODE; if ($$testExit -ne 0) { exit $$testExit }; if ($$downExit -ne 0) { exit $$downExit } }"
 else
 it:
-	trap '$(MAKE) it-down' EXIT
-	$(MAKE) it-up
+	trap '$(MAKE) -f $(SELF_MAKEFILE) it-down' EXIT
+	$(MAKE) -f $(SELF_MAKEFILE) it-up
 	go test ./tests/integration/...
 endif

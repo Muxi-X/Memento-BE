@@ -45,7 +45,7 @@ func (r *Repository) GetSettings(ctx context.Context, userID uuid.UUID) (Setting
 
 func (r *Repository) UpdateReactionNotifications(ctx context.Context, userID uuid.UUID, enabled bool) (SettingsRow, error) {
 	affected, err := r.q.UpdateUserReactionNotifications(ctx, profiledb.UpdateUserReactionNotificationsParams{
-		UserID:                       userID,
+		UserID:                      userID,
 		ReactionNotificationEnabled: enabled,
 	})
 	if err != nil {
