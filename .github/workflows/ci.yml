@@ -20,7 +20,7 @@ concurrency:
 env:
   GO_VERSION_FILE: go.mod
   MAKEFILE_PATH: Makefile/makefile
-  GOLANGCI_LINT_VERSION: v1.65.1
+  GOLANGCI_LINT_VERSION: v1.64.8
 
 jobs:
   ci:
