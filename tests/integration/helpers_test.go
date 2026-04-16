@@ -146,6 +146,26 @@ func seedOfficialKeyword(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	}
 }
 
+func seedDailyKeywordAssignment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, keywordID uuid.UUID, bizDate time.Time) {
+	t.Helper()
+
+	bizDate = dateOnly(bizDate)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO daily_keyword_assignments (biz_date, keyword_id)
+VALUES ($1, $2)
+ON CONFLICT (biz_date) DO UPDATE SET keyword_id = EXCLUDED.keyword_id
+`, bizDate, keywordID); err != nil {
+		t.Fatalf("upsert daily_keyword_assignments: %v", err)
+	}
+}
+
+func seedOfficialKeywordAsDaily(t *testing.T, ctx context.Context, pool *pgxpool.Pool, keywordID uuid.UUID, text string, bizDate time.Time) {
+	t.Helper()
+
+	seedOfficialKeyword(t, ctx, pool, keywordID, text, bizDate)
+	seedDailyKeywordAssignment(t, ctx, pool, keywordID, bizDate)
+}
+
 func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want int) {
 	t.Helper()
 
