@@ -4,6 +4,20 @@
 2. `develop` 为日常集成分支
 3. 合并策略统一使用 squash merge（保持 `develop`/`main` 历史整洁）
 
+### 分支命名
+
+1. `feature/<name>`：功能开发
+2. `bugfix/<name>`：Bug 修复（从 `develop` 拉分支，合并回 `develop`）
+3. `docs/<name>`：文档改动（从 `develop` 拉分支，合并回 `develop`）
+4. `release/<version>`：版本发布准备（例如 `release/v0.1.0`）
+5. `hotfix/<name>`：线上热修复（从 `main` 拉分支，合并回 `main` 后需回灌 `develop`）
+
+### 分支清理
+
+1. `feature/*`、`release/*`、`docs/*`、`bugfix/*`、`hotfix/*` 在完成合并后需要删除分支（本地与远端）
+2. `hotfix/*` 和 `release/*` 在删除前必须确认已完成对 `develop` 的回灌
+3. 禁止删除 `main`、`develop`
+
 ### 提交前自检
 
 1. 本项目提供统一命令入口：`Makefile`
@@ -39,6 +53,13 @@
 
 1. 从 `develop` 分支 checkout 一个新的功能分支，如 `feature/new-feat`
 2. 完成功能开发，并写好测试
+3. 推送分支，向 `develop` 分支发起 Pull Request
+4. 等待 CI 流水线全部通过，使用 squash merge 完成合并
+
+### 文档改动
+
+1. 从 `develop` 分支 checkout 一个新的文档分支，如 `docs/update-readme`
+2. 完成文档更新
 3. 推送分支，向 `develop` 分支发起 Pull Request
 4. 等待 CI 流水线全部通过，使用 squash merge 完成合并
 
