@@ -15,3 +15,7 @@ import (
 func newECSRAMRoleCredentialsProvider(_ appcfg.OSSConfig) (osscredentials.CredentialsProvider, error) {
 	return nil, fmt.Errorf("oss: ecs_ram_role credential mode is not supported in Windows builds; use static mode locally and ecs_ram_role on ECS/Linux")
 }
+
+func newECSRAMRoleAssumeRoleCredentialsProvider(_ appcfg.OSSConfig) (osscredentials.CredentialsProvider, error) {
+	return nil, fmt.Errorf("oss: ecs_ram_role_assume_role credential mode is not supported in Windows builds; use static mode locally and ecs_ram_role_assume_role on ECS/Linux")
+}

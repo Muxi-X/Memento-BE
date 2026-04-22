@@ -24,6 +24,13 @@ oss:
   credential_mode: "static"
   ecs_role_name: "CixingEcsOssUploadRole"
   disable_imdsv1: true
+  # For cross-account ECS RAM role access, set credential_mode to
+  # "ecs_ram_role_assume_role" and fill the target account role ARN below.
+  assume_role_arn: ""
+  assume_role_session_name: ""
+  assume_role_external_id: ""
+  assume_role_sts_endpoint: ""
+  assume_role_session_duration: 1h
   bucket: "change-me"
   region: "cn-hongkong"
   access_key_id: ""

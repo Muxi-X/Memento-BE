@@ -22,6 +22,11 @@ oss:
   credential_mode: "static"
   ecs_role_name: "CixingEcsOssUploadRole"
   disable_imdsv1: true
+  assume_role_arn: ""
+  assume_role_session_name: ""
+  assume_role_external_id: ""
+  assume_role_sts_endpoint: ""
+  assume_role_session_duration: 1h
   bucket: "change-me"
   region: "cn-hongkong"
   access_key_id: ""

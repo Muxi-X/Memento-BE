@@ -43,22 +43,27 @@ type RedisConfig struct {
 }
 
 type OSSConfig struct {
-	CredentialMode          string         `yaml:"credential_mode"`
-	ECSRoleName             string         `yaml:"ecs_role_name"`
-	DisableIMDSv1           bool           `yaml:"disable_imdsv1"`
-	Bucket                  string         `yaml:"bucket"`
-	Region                  string         `yaml:"region"`
-	AccessKeyID             string         `yaml:"access_key_id"`
-	AccessKeySecret         string         `yaml:"access_key_secret"`
-	PublicEndpoint          string         `yaml:"public_endpoint"`
-	PublicEndpointIsCName   bool           `yaml:"public_endpoint_is_cname"`
-	InternalEndpoint        string         `yaml:"internal_endpoint"`
-	InternalEndpointIsCName bool           `yaml:"internal_endpoint_is_cname"`
-	UseInternalEndpoint     bool           `yaml:"use_internal_endpoint"`
-	PutPresignExpire        time.Duration  `yaml:"put_presign_expire"`
-	GetPresignExpire        time.Duration  `yaml:"get_presign_expire"`
-	UploadPrefix            string         `yaml:"upload_prefix"`
-	Styles                  OSSStyleConfig `yaml:"styles"`
+	CredentialMode            string         `yaml:"credential_mode"`
+	ECSRoleName               string         `yaml:"ecs_role_name"`
+	DisableIMDSv1             bool           `yaml:"disable_imdsv1"`
+	AssumeRoleARN             string         `yaml:"assume_role_arn"`
+	AssumeRoleSessionName     string         `yaml:"assume_role_session_name"`
+	AssumeRoleExternalID      string         `yaml:"assume_role_external_id"`
+	AssumeRoleSTSEndpoint     string         `yaml:"assume_role_sts_endpoint"`
+	AssumeRoleSessionDuration time.Duration  `yaml:"assume_role_session_duration"`
+	Bucket                    string         `yaml:"bucket"`
+	Region                    string         `yaml:"region"`
+	AccessKeyID               string         `yaml:"access_key_id"`
+	AccessKeySecret           string         `yaml:"access_key_secret"`
+	PublicEndpoint            string         `yaml:"public_endpoint"`
+	PublicEndpointIsCName     bool           `yaml:"public_endpoint_is_cname"`
+	InternalEndpoint          string         `yaml:"internal_endpoint"`
+	InternalEndpointIsCName   bool           `yaml:"internal_endpoint_is_cname"`
+	UseInternalEndpoint       bool           `yaml:"use_internal_endpoint"`
+	PutPresignExpire          time.Duration  `yaml:"put_presign_expire"`
+	GetPresignExpire          time.Duration  `yaml:"get_presign_expire"`
+	UploadPrefix              string         `yaml:"upload_prefix"`
+	Styles                    OSSStyleConfig `yaml:"styles"`
 }
 
 type OSSStyleConfig struct {
@@ -107,11 +112,12 @@ func Default() Config {
 			DB:   0,
 		},
 		OSS: OSSConfig{
-			CredentialMode:   "static",
-			ECSRoleName:      "CixingEcsOssUploadRole",
-			PutPresignExpire: 15 * time.Minute,
-			GetPresignExpire: 10 * time.Minute,
-			UploadPrefix:     "uploads/",
+			CredentialMode:            "static",
+			ECSRoleName:               "CixingEcsOssUploadRole",
+			AssumeRoleSessionDuration: time.Hour,
+			PutPresignExpire:          15 * time.Minute,
+			GetPresignExpire:          10 * time.Minute,
+			UploadPrefix:              "uploads/",
 			Styles: OSSStyleConfig{
 				Card4x3:     "card_4x3",
 				SquareSmall: "square_small",
@@ -139,6 +145,10 @@ func (c *Config) Normalize() {
 	c.OSS.Region = strings.TrimSpace(c.OSS.Region)
 	c.OSS.CredentialMode = strings.ToLower(strings.TrimSpace(c.OSS.CredentialMode))
 	c.OSS.ECSRoleName = strings.TrimSpace(c.OSS.ECSRoleName)
+	c.OSS.AssumeRoleARN = strings.TrimSpace(c.OSS.AssumeRoleARN)
+	c.OSS.AssumeRoleSessionName = strings.TrimSpace(c.OSS.AssumeRoleSessionName)
+	c.OSS.AssumeRoleExternalID = strings.TrimSpace(c.OSS.AssumeRoleExternalID)
+	c.OSS.AssumeRoleSTSEndpoint = strings.TrimSpace(c.OSS.AssumeRoleSTSEndpoint)
 	c.OSS.AccessKeyID = strings.TrimSpace(c.OSS.AccessKeyID)
 	c.OSS.AccessKeySecret = strings.TrimSpace(c.OSS.AccessKeySecret)
 	c.OSS.PublicEndpoint = strings.TrimSpace(c.OSS.PublicEndpoint)
