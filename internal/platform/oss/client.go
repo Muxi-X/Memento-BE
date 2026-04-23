@@ -27,17 +27,8 @@ func NewClients(cfg appcfg.OSSConfig) (*Clients, error) {
 	if strings.TrimSpace(cfg.Region) == "" {
 		return nil, fmt.Errorf("oss: region is required")
 	}
-	switch credentialMode(cfg) {
-	case "static":
-		if strings.TrimSpace(cfg.AccessKeyID) == "" || strings.TrimSpace(cfg.AccessKeySecret) == "" {
-			return nil, fmt.Errorf("oss: access key id/secret are required")
-		}
-	case "ecs_ram_role":
-		if strings.TrimSpace(cfg.ECSRoleName) == "" {
-			return nil, fmt.Errorf("oss: ecs role name is required for ecs_ram_role")
-		}
-	default:
-		return nil, fmt.Errorf("oss: unsupported credential mode %q", cfg.CredentialMode)
+	if err := validateCredentialsConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	// 创建公共 client，给外部/前端使用
@@ -65,6 +56,32 @@ func NewClients(cfg appcfg.OSSConfig) (*Clients, error) {
 		return nil, err
 	}
 	return &Clients{Internal: internalClient, Public: publicClient}, nil
+}
+
+func validateCredentialsConfig(cfg appcfg.OSSConfig) error {
+	switch credentialMode(cfg) {
+	case credentialModeStatic:
+		if strings.TrimSpace(cfg.AccessKeyID) == "" || strings.TrimSpace(cfg.AccessKeySecret) == "" {
+			return fmt.Errorf("oss: access key id/secret are required")
+		}
+	case credentialModeECSRAMRole:
+		if strings.TrimSpace(cfg.ECSRoleName) == "" {
+			return fmt.Errorf("oss: ecs role name is required for ecs_ram_role")
+		}
+	case credentialModeECSRAMRoleAssumeRole:
+		if strings.TrimSpace(cfg.ECSRoleName) == "" {
+			return fmt.Errorf("oss: ecs role name is required for ecs_ram_role_assume_role")
+		}
+		if strings.TrimSpace(cfg.AssumeRoleARN) == "" {
+			return fmt.Errorf("oss: assume role arn is required for ecs_ram_role_assume_role")
+		}
+		if _, err := assumeRoleSessionDurationSeconds(cfg.AssumeRoleSessionDuration); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("oss: unsupported credential mode %q", cfg.CredentialMode)
+	}
+	return nil
 }
 
 // 判断是否需要不同的 client
@@ -117,7 +134,7 @@ func newClient(cfg appcfg.OSSConfig, opts clientOptions) (*alioss.Client, string
 func credentialMode(cfg appcfg.OSSConfig) string {
 	mode := strings.ToLower(strings.TrimSpace(cfg.CredentialMode))
 	if mode == "" {
-		return "static"
+		return credentialModeStatic
 	}
 	return mode
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -75,8 +76,17 @@ func applyEnv(cfg *Config) error {
 		return err
 	}
 
+	setString(&cfg.OSS.CredentialMode, EnvOSSCredentialMode)
+	setString(&cfg.OSS.ECSRoleName, EnvOSSECSRoleName)
 	setString(&cfg.OSS.AccessKeyID, EnvOSSAccessKeyID)
 	setString(&cfg.OSS.AccessKeySecret, EnvOSSAccessKeySecret)
+	setString(&cfg.OSS.AssumeRoleARN, EnvOSSAssumeRoleARN)
+	setString(&cfg.OSS.AssumeRoleSessionName, EnvOSSAssumeRoleSessionName)
+	setString(&cfg.OSS.AssumeRoleExternalID, EnvOSSAssumeRoleExternalID)
+	setString(&cfg.OSS.AssumeRoleSTSEndpoint, EnvOSSAssumeRoleSTSEndpoint)
+	if err := setDuration(&cfg.OSS.AssumeRoleSessionDuration, EnvOSSAssumeRoleSessionDuration); err != nil {
+		return err
+	}
 	setPEM(&cfg.JWT.PrivateKeyPEM, EnvJWTPrivatePEM)
 	setPEM(&cfg.JWT.PublicKeyPEM, EnvJWTPublicPEM)
 
@@ -113,6 +123,17 @@ func setInt(dst *int, key string) error {
 			return fmt.Errorf("config: invalid int for %s: %w", key, err)
 		}
 		*dst = n
+	}
+	return nil
+}
+
+func setDuration(dst *time.Duration, key string) error {
+	if v := readEnv(key); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("config: invalid duration for %s: %w", key, err)
+		}
+		*dst = d
 	}
 	return nil
 }

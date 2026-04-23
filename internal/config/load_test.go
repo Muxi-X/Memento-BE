@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadWith_UsesDefaultConfigFile(t *testing.T) {
@@ -75,6 +76,13 @@ jwt:
 	t.Setenv("SMTP_PASSWORD", "env-smtp")
 	t.Setenv("JWT_PRIVATE_KEY_PEM", "env-private")
 	t.Setenv("JWT_PUBLIC_KEY_PEM", "env-public")
+	t.Setenv("OSS_CREDENTIAL_MODE", "ecs_ram_role_assume_role")
+	t.Setenv("OSS_ECS_ROLE_NAME", "env-source-role")
+	t.Setenv("OSS_ASSUME_ROLE_ARN", "acs:ram::1234567890123456:role/env-target-role")
+	t.Setenv("OSS_ASSUME_ROLE_SESSION_NAME", "env-session")
+	t.Setenv("OSS_ASSUME_ROLE_EXTERNAL_ID", "env-external")
+	t.Setenv("OSS_ASSUME_ROLE_STS_ENDPOINT", "sts.cn-hongkong.aliyuncs.com")
+	t.Setenv("OSS_ASSUME_ROLE_SESSION_DURATION", "45m")
 
 	// These used to override config, but should no longer be applied.
 	t.Setenv("HTTP_ADDR", ":9999")
@@ -106,6 +114,27 @@ jwt:
 	if cfg.JWT.PublicKeyPEM != "env-public" {
 		t.Fatalf("JWT.PublicKeyPEM = %q, want env-public", cfg.JWT.PublicKeyPEM)
 	}
+	if cfg.OSS.CredentialMode != "ecs_ram_role_assume_role" {
+		t.Fatalf("OSS.CredentialMode = %q, want ecs_ram_role_assume_role", cfg.OSS.CredentialMode)
+	}
+	if cfg.OSS.ECSRoleName != "env-source-role" {
+		t.Fatalf("OSS.ECSRoleName = %q, want env-source-role", cfg.OSS.ECSRoleName)
+	}
+	if cfg.OSS.AssumeRoleARN != "acs:ram::1234567890123456:role/env-target-role" {
+		t.Fatalf("OSS.AssumeRoleARN = %q, want env target role arn", cfg.OSS.AssumeRoleARN)
+	}
+	if cfg.OSS.AssumeRoleSessionName != "env-session" {
+		t.Fatalf("OSS.AssumeRoleSessionName = %q, want env-session", cfg.OSS.AssumeRoleSessionName)
+	}
+	if cfg.OSS.AssumeRoleExternalID != "env-external" {
+		t.Fatalf("OSS.AssumeRoleExternalID = %q, want env-external", cfg.OSS.AssumeRoleExternalID)
+	}
+	if cfg.OSS.AssumeRoleSTSEndpoint != "sts.cn-hongkong.aliyuncs.com" {
+		t.Fatalf("OSS.AssumeRoleSTSEndpoint = %q, want sts.cn-hongkong.aliyuncs.com", cfg.OSS.AssumeRoleSTSEndpoint)
+	}
+	if cfg.OSS.AssumeRoleSessionDuration != 45*time.Minute {
+		t.Fatalf("OSS.AssumeRoleSessionDuration = %s, want 45m", cfg.OSS.AssumeRoleSessionDuration)
+	}
 	if cfg.HTTP.Addr != ":8088" {
 		t.Fatalf("HTTP.Addr = %q, want :8088", cfg.HTTP.Addr)
 	}
@@ -114,6 +143,67 @@ jwt:
 	}
 	if cfg.Logging.LogLevel != "warn" {
 		t.Fatalf("Logging.LogLevel = %q, want warn", cfg.Logging.LogLevel)
+	}
+}
+
+func TestLoadWith_LoadsOSSAssumeRoleFields(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`
+oss:
+  credential_mode: " ECS_RAM_ROLE_ASSUME_ROLE "
+  ecs_role_name: " source-role "
+  assume_role_arn: " acs:ram::1234567890123456:role/target-role "
+  assume_role_session_name: " cixing-test "
+  assume_role_external_id: " external-id "
+  assume_role_sts_endpoint: " sts.cn-hongkong.aliyuncs.com "
+  assume_role_session_duration: 30m
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config.yaml) error = %v", err)
+	}
+
+	cfg, err := LoadWith(Options{ConfigFile: configPath, SkipValidate: true})
+	if err != nil {
+		t.Fatalf("LoadWith() error = %v", err)
+	}
+
+	if cfg.OSS.CredentialMode != "ecs_ram_role_assume_role" {
+		t.Fatalf("OSS.CredentialMode = %q, want ecs_ram_role_assume_role", cfg.OSS.CredentialMode)
+	}
+	if cfg.OSS.ECSRoleName != "source-role" {
+		t.Fatalf("OSS.ECSRoleName = %q, want source-role", cfg.OSS.ECSRoleName)
+	}
+	if cfg.OSS.AssumeRoleARN != "acs:ram::1234567890123456:role/target-role" {
+		t.Fatalf("OSS.AssumeRoleARN = %q, want trimmed target role arn", cfg.OSS.AssumeRoleARN)
+	}
+	if cfg.OSS.AssumeRoleSessionName != "cixing-test" {
+		t.Fatalf("OSS.AssumeRoleSessionName = %q, want cixing-test", cfg.OSS.AssumeRoleSessionName)
+	}
+	if cfg.OSS.AssumeRoleExternalID != "external-id" {
+		t.Fatalf("OSS.AssumeRoleExternalID = %q, want external-id", cfg.OSS.AssumeRoleExternalID)
+	}
+	if cfg.OSS.AssumeRoleSTSEndpoint != "sts.cn-hongkong.aliyuncs.com" {
+		t.Fatalf("OSS.AssumeRoleSTSEndpoint = %q, want sts.cn-hongkong.aliyuncs.com", cfg.OSS.AssumeRoleSTSEndpoint)
+	}
+	if cfg.OSS.AssumeRoleSessionDuration != 30*time.Minute {
+		t.Fatalf("OSS.AssumeRoleSessionDuration = %s, want 30m", cfg.OSS.AssumeRoleSessionDuration)
+	}
+}
+
+func TestLoadWith_InvalidOSSAssumeRoleSessionDurationEnv(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`app: {}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(config.yaml) error = %v", err)
+	}
+	t.Setenv("OSS_ASSUME_ROLE_SESSION_DURATION", "not-a-duration")
+
+	_, err := LoadWith(Options{ConfigFile: configPath, SkipValidate: true})
+	if err == nil {
+		t.Fatalf("LoadWith() error = nil, want invalid duration error")
+	}
+	if got := err.Error(); !strings.Contains(got, "OSS_ASSUME_ROLE_SESSION_DURATION") {
+		t.Fatalf("LoadWith() error = %q, want OSS_ASSUME_ROLE_SESSION_DURATION", got)
 	}
 }
 
