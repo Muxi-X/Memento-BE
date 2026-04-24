@@ -131,9 +131,39 @@ jobs:
             compose() {
               $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml "$@"
             }
+            cleanup_existing_compose_state() {
+              echo "cleaning existing compose state"
+              compose down --remove-orphans 2>/dev/null || true
+              legacy_container_ids="$($DOCKER ps -aq --filter label=com.docker.compose.project=cixing-prod)"
+              if [ -n "$legacy_container_ids" ]; then
+                $DOCKER rm -f $legacy_container_ids >/dev/null 2>&1 || true
+              fi
+              legacy_network_ids="$($DOCKER network ls -q --filter label=com.docker.compose.project=cixing-prod)"
+              if [ -n "$legacy_network_ids" ]; then
+                $DOCKER network rm $legacy_network_ids >/dev/null 2>&1 || true
+              fi
+              if command -v ss >/dev/null 2>&1; then
+                if ss -lntp 2>/dev/null | grep -q ':8080 '; then
+                  echo "port 8080 is still occupied before deployment" >&2
+                  ss -lntp 2>/dev/null | grep ':8080 ' >&2 || true
+                  exit 1
+                fi
+              fi
+            }
             dump_api_diagnostics() {
               compose ps
               compose logs --tail=200 api
+            }
+            cleanup_deployment_artifacts() {
+              echo "cleaning deployment artifacts"
+              rm -f /opt/cixing/images/*.tar.gz || true
+              current_image="$(awk -F= '$1=="CIXING_IMAGE"{print $2}' /opt/cixing/deploy.env)"
+              if [ -z "$current_image" ]; then
+                return 0
+              fi
+              for image_ref in $($DOCKER images --format '{{.Repository}}:{{.Tag}}' | grep '^cixing-api:' | grep -F -x -v "$current_image" || true); do
+                $DOCKER rmi "$image_ref" >/dev/null 2>&1 || true
+              done
             }
             api_ready() {
               api_container_id="$(compose ps -q api)"
@@ -165,6 +195,7 @@ jobs:
             }
             chmod 600 /opt/cixing/deploy.env
             chmod 644 /opt/cixing/config/config.yaml
+            cleanup_existing_compose_state
             gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
@@ -213,6 +244,7 @@ jobs:
               exit 1
             fi
 
+            cleanup_deployment_artifacts
             compose ps
             compose logs --tail=80 api
           REMOTE
