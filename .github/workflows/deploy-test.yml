@@ -200,13 +200,17 @@ jobs:
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/mailpit.tar.gz | $DOCKER load
+            echo "starting dependency services"
             compose up -d postgres redis mailpit
+            echo "running database migrations"
             compose run --rm migrate up
+            echo "starting api service"
             compose up -d api
 
             attempts=0
             api_state=""
             api_health=""
+            echo "waiting for api readiness"
             while [ "$attempts" -lt 30 ]; do
               if api_ready; then
                 break
@@ -230,6 +234,8 @@ jobs:
               exit 1
             fi
 
+            echo "api initial readiness check passed: container=$api_container_id state=$api_state health=$api_health"
+            echo "rechecking api stability after warmup"
             sleep 12
 
             if ! api_ready; then
@@ -244,6 +250,15 @@ jobs:
               exit 1
             fi
 
+            final_api_container_id="$(compose ps -q api)"
+            if [ -z "$final_api_container_id" ]; then
+              dump_api_diagnostics
+              echo "api container disappeared before final status output" >&2
+              exit 1
+            fi
+            final_api_state="$($DOCKER inspect --format '{{.State.Status}}' "$final_api_container_id")"
+            final_api_health="$($DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$final_api_container_id")"
+            echo "final api status: container=$final_api_container_id state=$final_api_state health=$final_api_health"
             cleanup_deployment_artifacts
             compose ps
             compose logs --tail=80 api
