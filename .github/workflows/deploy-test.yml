@@ -128,15 +128,60 @@ jobs:
             if ! docker info >/dev/null 2>&1; then
               DOCKER="sudo docker"
             fi
+            compose() {
+              $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml "$@"
+            }
             chmod 600 /opt/cixing/deploy.env
             chmod 644 /opt/cixing/config/config.yaml
             gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/mailpit.tar.gz | $DOCKER load
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml up -d postgres redis mailpit
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml run --rm migrate up
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml up -d api
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml ps
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml logs --tail=80 api
+            compose up -d postgres redis mailpit
+            compose run --rm migrate up
+            compose up -d api
+
+            api_container_id="$(compose ps -q api)"
+            if [ -z "$api_container_id" ]; then
+              compose ps
+              compose logs --tail=200 api
+              echo "api container was not created" >&2
+              exit 1
+            fi
+
+            attempts=0
+            api_status=""
+            while [ "$attempts" -lt 30 ]; do
+              api_status="$($DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$api_container_id")"
+              if [ "$api_status" = "healthy" ]; then
+                break
+              fi
+              if [ "$api_status" = "exited" ] || [ "$api_status" = "dead" ]; then
+                break
+              fi
+              attempts=$((attempts + 1))
+              sleep 4
+            done
+
+            api_status="$($DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$api_container_id")"
+            if [ "$api_status" != "healthy" ]; then
+              compose ps
+              compose logs --tail=200 api
+              echo "api container health status: $api_status" >&2
+              exit 1
+            fi
+
+            if command -v curl >/dev/null 2>&1; then
+              curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
+            elif command -v wget >/dev/null 2>&1; then
+              wget -qO- http://127.0.0.1:8080/healthz >/dev/null
+            else
+              compose ps
+              compose logs --tail=200 api
+              echo "ECS host missing curl and wget; unable to verify /healthz from host network" >&2
+              exit 1
+            fi
+
+            compose ps
+            compose logs --tail=80 api
           REMOTE
