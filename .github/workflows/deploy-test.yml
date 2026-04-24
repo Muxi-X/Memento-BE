@@ -128,7 +128,8 @@ jobs:
             if ! docker info >/dev/null 2>&1; then
               DOCKER="sudo docker"
             fi
-            chmod 600 /opt/cixing/deploy.env /opt/cixing/config/config.yaml
+            chmod 600 /opt/cixing/deploy.env
+            chmod 644 /opt/cixing/config/config.yaml
             gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
