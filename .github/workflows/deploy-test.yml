@@ -203,7 +203,8 @@ jobs:
             echo "starting dependency services"
             compose up -d postgres redis mailpit
             echo "running database migrations"
-            compose run --rm migrate up
+            compose run --rm -T migrate up </dev/null
+            echo "database migrations completed"
             echo "starting api service"
             compose up -d api
 
