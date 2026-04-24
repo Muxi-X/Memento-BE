@@ -11,7 +11,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_REPOSITORY: cixing-api
+  API_IMAGE_REPOSITORY: cixing-api
+  POSTGRES_IMAGE: postgres:16-alpine
+  REDIS_IMAGE: redis:7-alpine
+  MAILPIT_IMAGE: axllent/mailpit:v1.29.7
 
 jobs:
   deploy:
@@ -23,8 +26,6 @@ jobs:
 
       - name: Validate required secrets
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
           TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
@@ -32,33 +33,34 @@ jobs:
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
         run: |
           set -eu
-          test -n "$DOCKERHUB_USERNAME"
-          test -n "$DOCKERHUB_TOKEN"
           test -n "$TEST_SERVER_HOST"
           test -n "$TEST_SERVER_USERNAME"
           test -n "$TEST_SERVER_SSH_KEY"
           test -n "$TEST_CONFIG_YAML"
           test -n "$TEST_POSTGRES_PASSWORD"
 
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build API image
         run: |
           set -eu
-          echo "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
+          IMAGE_LOCAL="${API_IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          docker build --platform linux/amd64 -f deploy/docker/Dockerfile.api -t "$IMAGE_LOCAL" .
+          echo "CIXING_IMAGE=$IMAGE_LOCAL" >> "$GITHUB_ENV"
 
-      - name: Build and push image
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      - name: Pull dependency images
         run: |
           set -eu
-          IMAGE_SHA="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_REPOSITORY}:${GITHUB_SHA}"
-          IMAGE_LATEST="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_REPOSITORY}:test-latest"
-          docker build -f deploy/docker/Dockerfile.api -t "$IMAGE_SHA" -t "$IMAGE_LATEST" .
-          docker push "$IMAGE_SHA"
-          docker push "$IMAGE_LATEST"
-          echo "CIXING_IMAGE=$IMAGE_SHA" >> "$GITHUB_ENV"
+          docker pull --platform linux/amd64 "$POSTGRES_IMAGE"
+          docker pull --platform linux/amd64 "$REDIS_IMAGE"
+          docker pull --platform linux/amd64 "$MAILPIT_IMAGE"
+
+      - name: Save deployment images
+        run: |
+          set -eu
+          mkdir -p /tmp/cixing-deploy/images
+          docker save "$CIXING_IMAGE" | gzip > /tmp/cixing-deploy/images/cixing-api.tar.gz
+          docker save "$POSTGRES_IMAGE" | gzip > /tmp/cixing-deploy/images/postgres.tar.gz
+          docker save "$REDIS_IMAGE" | gzip > /tmp/cixing-deploy/images/redis.tar.gz
+          docker save "$MAILPIT_IMAGE" | gzip > /tmp/cixing-deploy/images/mailpit.tar.gz
 
       - name: Prepare deployment files
         env:
@@ -71,6 +73,9 @@ jobs:
           printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
             echo "CIXING_IMAGE=${CIXING_IMAGE}"
+            echo "POSTGRES_IMAGE=${POSTGRES_IMAGE}"
+            echo "REDIS_IMAGE=${REDIS_IMAGE}"
+            echo "MAILPIT_IMAGE=${MAILPIT_IMAGE}"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
@@ -87,31 +92,35 @@ jobs:
           chmod 600 ~/.ssh/id_test_server
           ssh-keyscan -H "$TEST_SERVER_HOST" >> ~/.ssh/known_hosts
 
-      - name: Upload deployment files
+      - name: Upload deployment assets
         env:
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
         run: |
           set -eu
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+            "sudo mkdir -p /opt/cixing/config /opt/cixing/images && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/docker-compose.yml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/deploy.env \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/cixing-api.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/cixing-api.tar.gz"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/postgres.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/postgres.tar.gz"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/redis.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/redis.tar.gz"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/mailpit.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/mailpit.tar.gz"
 
       - name: Deploy on ECS
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
         run: |
           set -eu
-          echo "$DOCKERHUB_TOKEN" | ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "if docker info >/dev/null 2>&1; then docker login docker.io -u '$DOCKERHUB_USERNAME' --password-stdin; else sudo docker login docker.io -u '$DOCKERHUB_USERNAME' --password-stdin; fi"
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" <<'REMOTE'
             set -eu
             cd /opt/cixing
@@ -120,7 +129,10 @@ jobs:
               DOCKER="sudo docker"
             fi
             chmod 600 /opt/cixing/deploy.env /opt/cixing/config/config.yaml
-            $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml pull
+            gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
+            gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
+            gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
+            gzip -dc /opt/cixing/images/mailpit.tar.gz | $DOCKER load
             $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml up -d postgres redis mailpit
             $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml run --rm migrate up
             $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml up -d api
