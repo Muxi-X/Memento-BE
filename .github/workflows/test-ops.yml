@@ -98,7 +98,15 @@ jobs:
                   compose ps
                   ;;
                 api_logs)
-                  compose logs --tail="$API_LOG_LINES" api
+                  logs_file="$(mktemp)"
+                  if compose logs --tail="$API_LOG_LINES" api > "$logs_file"; then
+                    grep -v '"path":"/healthz"' "$logs_file" || true
+                    rm -f "$logs_file"
+                  else
+                    status="$?"
+                    rm -f "$logs_file"
+                    exit "$status"
+                  fi
                   ;;
                 *)
                   echo "Unsupported action: $ACTION" >&2
