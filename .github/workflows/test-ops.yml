@@ -1,0 +1,108 @@
+name: test-ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Operation to run on the test ECS host
+        required: true
+        type: choice
+        options:
+          - mailpit_latest_code
+          - compose_ps
+          - api_logs
+      api_log_lines:
+        description: Number of API log lines for api_logs
+        required: false
+        default: "120"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-ops
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate required secrets
+        env:
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+          TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$TEST_SERVER_HOST"
+          test -n "$TEST_SERVER_USERNAME"
+          test -n "$TEST_SERVER_SSH_KEY"
+
+      - name: Configure SSH
+        env:
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_SERVER_SSH_KEY" > ~/.ssh/id_test_server
+          chmod 600 ~/.ssh/id_test_server
+          ssh-keyscan -H "$TEST_SERVER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run selected test ECS operation
+        env:
+          ACTION: ${{ inputs.action }}
+          API_LOG_LINES: ${{ inputs.api_log_lines }}
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+        run: |
+          set -eu
+
+          case "$API_LOG_LINES" in
+            ''|*[!0-9]*)
+              echo "api_log_lines must be a number" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$API_LOG_LINES" -lt 1 ] || [ "$API_LOG_LINES" -gt 500 ]; then
+            echo "api_log_lines must be between 1 and 500" >&2
+            exit 1
+          fi
+
+          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
+            "ACTION=$ACTION API_LOG_LINES=$API_LOG_LINES /bin/sh -s" <<'REMOTE'
+              set -eu
+              cd /opt/cixing
+
+              DOCKER="docker"
+              if ! docker info >/dev/null 2>&1; then
+                DOCKER="sudo docker"
+              fi
+              compose() {
+                $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml "$@"
+              }
+
+              case "$ACTION" in
+                mailpit_latest_code)
+                  raw="$(curl -fsS http://127.0.0.1:8025/api/v1/message/latest/raw)"
+                  code="$(printf '%s\n' "$raw" | sed -n 's/.*Your 6-digit verification code is: \([0-9]\{6\}\).*/\1/p' | tail -n 1)"
+                  if [ -z "$code" ]; then
+                    echo "No verification code found in the latest Mailpit message" >&2
+                    exit 1
+                  fi
+                  echo "LATEST_VERIFICATION_CODE=$code"
+                  ;;
+                compose_ps)
+                  compose ps
+                  ;;
+                api_logs)
+                  compose logs --tail="$API_LOG_LINES" api
+                  ;;
+                *)
+                  echo "Unsupported action: $ACTION" >&2
+                  exit 1
+                  ;;
+              esac
+          REMOTE
