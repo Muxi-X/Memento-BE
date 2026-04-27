@@ -1,0 +1,344 @@
+name: test-ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Operation to run on the test ECS host
+        required: true
+        type: choice
+        options:
+          - mailpit_latest_code
+          - compose_ps
+          - api_logs
+          - api_logs_by_request_id
+          - api_recent_errors
+          - api_runtime_env
+          - oss_config
+          - ecs_ram_role_metadata
+          - oss_network_probe
+          - presign_debug_bundle
+      api_log_lines:
+        description: Number of API log lines for log actions
+        required: false
+        default: "1000"
+        type: string
+      request_id:
+        description: Optional request_id for api_logs_by_request_id or presign_debug_bundle
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-ops
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate required secrets
+        env:
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+          TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
+        run: |
+          set -eu
+          test -n "$TEST_SERVER_HOST"
+          test -n "$TEST_SERVER_USERNAME"
+          test -n "$TEST_SERVER_SSH_KEY"
+
+      - name: Configure SSH
+        env:
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
+        run: |
+          set -eu
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TEST_SERVER_SSH_KEY" > ~/.ssh/id_test_server
+          chmod 600 ~/.ssh/id_test_server
+          ssh-keyscan -H "$TEST_SERVER_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run selected test ECS operation
+        env:
+          ACTION: ${{ inputs.action }}
+          API_LOG_LINES: ${{ inputs.api_log_lines }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+        run: |
+          set -eu
+
+          case "$API_LOG_LINES" in
+            ''|*[!0-9]*)
+              echo "api_log_lines must be a number" >&2
+              exit 1
+              ;;
+          esac
+          if [ "$API_LOG_LINES" -lt 1 ] || [ "$API_LOG_LINES" -gt 5000 ]; then
+            echo "api_log_lines must be between 1 and 5000" >&2
+            exit 1
+          fi
+          case "$REQUEST_ID" in
+            *[!A-Za-z0-9_.:-]*)
+              echo "request_id contains unsupported characters" >&2
+              exit 1
+              ;;
+          esac
+
+          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
+            "ACTION=$ACTION API_LOG_LINES=$API_LOG_LINES REQUEST_ID=$REQUEST_ID /bin/sh -s" <<'REMOTE'
+              set -eu
+              cd /opt/cixing
+
+              DOCKER="docker"
+              if ! docker info >/dev/null 2>&1; then
+                DOCKER="sudo docker"
+              fi
+              compose() {
+                $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml "$@"
+              }
+
+              print_section() {
+                printf '\n== %s ==\n' "$1"
+              }
+
+              collect_api_logs() {
+                logs_file="$(mktemp)"
+                if compose logs --no-color --tail="$API_LOG_LINES" api > "$logs_file"; then
+                  return 0
+                fi
+                status="$?"
+                rm -f "$logs_file"
+                return "$status"
+              }
+
+              cleanup_api_logs() {
+                if [ "${logs_file:-}" != "" ]; then
+                  rm -f "$logs_file"
+                fi
+              }
+
+              print_api_logs() {
+                collect_api_logs
+                grep -v '"path":"/healthz"' "$logs_file" || true
+                cleanup_api_logs
+              }
+
+              print_api_logs_by_request_id() {
+                if [ -z "$REQUEST_ID" ]; then
+                  echo "request_id is required for this action" >&2
+                  exit 1
+                fi
+                collect_api_logs
+                if ! grep -F "$REQUEST_ID" "$logs_file"; then
+                  echo "No API log lines found for request_id=$REQUEST_ID in the latest $API_LOG_LINES lines" >&2
+                fi
+                cleanup_api_logs
+              }
+
+              print_api_recent_errors() {
+                collect_api_logs
+                grep -E '"status":5[0-9][0-9]' "$logs_file" || echo "No 5xx API access logs found in the latest $API_LOG_LINES lines"
+                cleanup_api_logs
+              }
+
+              print_api_runtime_env() {
+                api_container_id="$(compose ps -q api || true)"
+                if [ -z "$api_container_id" ]; then
+                  echo "API container not found" >&2
+                  return 0
+                fi
+                $DOCKER inspect --format 'image={{.Config.Image}} state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$api_container_id"
+                echo "selected_env:"
+                $DOCKER inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$api_container_id" \
+                  | grep -E '^(CONFIG_FILE=|OSS_|ALIYUN_|ALIBABA_)' \
+                  | sed -E \
+                    -e 's/([^=]*(SECRET|TOKEN|PASSWORD)[^=]*)=.*/\1=<redacted>/' \
+                    -e 's/(OSS_ACCESS_KEY_ID)=.*/\1=<redacted>/' \
+                  || true
+              }
+
+              get_oss_value() {
+                key="$1"
+                awk -v key="$key" '
+                  /^oss:/ { in_oss=1; next }
+                  in_oss && /^[^[:space:]][^:]*:/ { exit }
+                  in_oss {
+                    line=$0
+                    sub(/^[[:space:]]+/, "", line)
+                    if (index(line, key ":") == 1) {
+                      sub(/^[^:]+:[[:space:]]*/, "", line)
+                      gsub(/^"/, "", line)
+                      gsub(/"$/, "", line)
+                      print line
+                      exit
+                    }
+                  }
+                ' /opt/cixing/config/config.yaml
+              }
+
+              print_oss_config() {
+                if [ ! -f /opt/cixing/config/config.yaml ]; then
+                  echo "/opt/cixing/config/config.yaml not found" >&2
+                  exit 1
+                fi
+                ls -l /opt/cixing/config/config.yaml /opt/cixing/deploy.env /opt/cixing/docker-compose.yml 2>/dev/null || true
+                awk '
+                  /^oss:/ { in_oss=1; print; next }
+                  in_oss && /^[^[:space:]][^:]*:/ { exit }
+                  in_oss {
+                    line=$0
+                    if (line ~ /^[[:space:]]+access_key_id:/) {
+                      sub(/:.*/, ": <redacted>", line)
+                    }
+                    if (line ~ /^[[:space:]]+access_key_secret:/) {
+                      sub(/:.*/, ": <redacted>", line)
+                    }
+                    if (line ~ /^[[:space:]]+assume_role_external_id:/) {
+                      sub(/:.*/, ": <redacted>", line)
+                    }
+                    print line
+                  }
+                ' /opt/cixing/config/config.yaml
+              }
+
+              metadata_get() {
+                path="$1"
+                token="$(curl -fsS -X PUT --connect-timeout 2 --max-time 4 \
+                  -H "X-aliyun-ecs-metadata-token-ttl-seconds: 60" \
+                  http://100.100.100.200/latest/api/token 2>/dev/null || true)"
+                if [ -n "$token" ]; then
+                  curl -fsS --connect-timeout 2 --max-time 4 \
+                    -H "X-aliyun-ecs-metadata-token: $token" \
+                    "http://100.100.100.200$path"
+                else
+                  curl -fsS --connect-timeout 2 --max-time 4 "http://100.100.100.200$path"
+                fi
+              }
+
+              print_ecs_ram_role_metadata() {
+                configured_role="$(get_oss_value ecs_role_name)"
+                echo "configured_ecs_role_name=${configured_role:-<empty>}"
+
+                roles="$(metadata_get /latest/meta-data/ram/security-credentials/ 2>/dev/null || true)"
+                if [ -z "$roles" ]; then
+                  echo "No ECS RAM role metadata returned from 100.100.100.200" >&2
+                  return 0
+                fi
+
+                echo "metadata_roles:"
+                printf '%s\n' "$roles"
+
+                role="$configured_role"
+                if [ -z "$role" ]; then
+                  role="$(printf '%s\n' "$roles" | head -n 1)"
+                fi
+                if [ -z "$role" ]; then
+                  echo "No role name available for credential metadata lookup" >&2
+                  return 0
+                fi
+
+                echo "metadata_credentials_for=$role"
+                metadata_get "/latest/meta-data/ram/security-credentials/$role" 2>/dev/null \
+                  | sed -E \
+                    -e 's/"AccessKeyId"[[:space:]]*:[[:space:]]*"[^"]+"/"AccessKeyId":"<redacted>"/g' \
+                    -e 's/"AccessKeySecret"[[:space:]]*:[[:space:]]*"[^"]+"/"AccessKeySecret":"<redacted>"/g' \
+                    -e 's/"SecurityToken"[[:space:]]*:[[:space:]]*"[^"]+"/"SecurityToken":"<redacted>"/g' \
+                  || echo "Failed to fetch credential metadata for role=$role" >&2
+              }
+
+              probe_url() {
+                label="$1"
+                url="$2"
+                if [ -z "$url" ]; then
+                  echo "$label=<empty>"
+                  return 0
+                fi
+                case "$url" in
+                  http://*|https://*) ;;
+                  *) url="https://$url" ;;
+                esac
+                printf '%s=%s ' "$label" "$url"
+                if curl -sS -I -o /dev/null --connect-timeout 5 --max-time 10 \
+                  -w 'http_code=%{http_code} remote_ip=%{remote_ip} time_total=%{time_total}\n' "$url"; then
+                  return 0
+                fi
+                echo "connection_failed"
+              }
+
+              print_oss_network_probe() {
+                sts_endpoint="$(get_oss_value assume_role_sts_endpoint)"
+                public_endpoint="$(get_oss_value public_endpoint)"
+                internal_endpoint="$(get_oss_value internal_endpoint)"
+                probe_url "assume_role_sts_endpoint" "$sts_endpoint"
+                probe_url "public_endpoint" "$public_endpoint"
+                probe_url "internal_endpoint" "$internal_endpoint"
+              }
+
+              case "$ACTION" in
+                mailpit_latest_code)
+                  raw="$(curl -fsS http://127.0.0.1:8025/api/v1/message/latest/raw)"
+                  code="$(printf '%s\n' "$raw" | sed -n 's/.*Your 6-digit verification code is: \([0-9]\{6\}\).*/\1/p' | tail -n 1)"
+                  if [ -z "$code" ]; then
+                    echo "No verification code found in the latest Mailpit message" >&2
+                    exit 1
+                  fi
+                  echo "LATEST_VERIFICATION_CODE=$code"
+                  ;;
+                compose_ps)
+                  compose ps
+                  ;;
+                api_logs)
+                  print_api_logs
+                  ;;
+                api_logs_by_request_id)
+                  print_api_logs_by_request_id
+                  ;;
+                api_recent_errors)
+                  print_api_recent_errors
+                  ;;
+                api_runtime_env)
+                  print_api_runtime_env
+                  ;;
+                oss_config)
+                  print_oss_config
+                  ;;
+                ecs_ram_role_metadata)
+                  print_ecs_ram_role_metadata
+                  ;;
+                oss_network_probe)
+                  print_oss_network_probe
+                  ;;
+                presign_debug_bundle)
+                  print_section "Server Time"
+                  date -u
+                  TZ=Asia/Hong_Kong date
+                  print_section "Compose Status"
+                  compose ps
+                  print_section "API Runtime Env"
+                  print_api_runtime_env
+                  print_section "API Logs"
+                  if [ -n "$REQUEST_ID" ]; then
+                    print_api_logs_by_request_id
+                  else
+                    print_api_recent_errors
+                    print_api_logs
+                  fi
+                  print_section "OSS Config"
+                  print_oss_config
+                  print_section "ECS RAM Role Metadata"
+                  print_ecs_ram_role_metadata
+                  print_section "OSS Network Probe"
+                  print_oss_network_probe
+                  ;;
+                *)
+                  echo "Unsupported action: $ACTION" >&2
+                  exit 1
+                  ;;
+              esac
+          REMOTE

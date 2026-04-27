@@ -2,7 +2,7 @@ name: cixing-prod
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: cixing
@@ -17,7 +17,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -29,7 +29,7 @@ services:
       retries: 20
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
@@ -63,7 +63,7 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
-      interval: 10s
+      interval: 30s
       timeout: 3s
       retries: 12
 
