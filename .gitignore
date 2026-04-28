@@ -13,6 +13,7 @@
 
 # 临时文件与缓存
 /tmp/
+/local-debug/
 /.cache/
 /.gocache/
 /.gotmp/
