@@ -11,8 +11,14 @@ import (
 )
 
 type Querier interface {
+	CompleteAvatarUploadSession(ctx context.Context, arg CompleteAvatarUploadSessionParams) (AvatarUploadSession, error)
+	CreateAvatarUploadSession(ctx context.Context, arg CreateAvatarUploadSessionParams) (AvatarUploadSession, error)
+	ExpireAvatarUploadSession(ctx context.Context, arg ExpireAvatarUploadSessionParams) (int64, error)
+	GetAvatarUploadSessionForUpdate(ctx context.Context, arg GetAvatarUploadSessionForUpdateParams) (AvatarUploadSession, error)
 	// Profile / settings
 	GetProfileSettings(ctx context.Context, userID uuid.UUID) (GetProfileSettingsRow, error)
+	SetAvatarUploadSessionImage(ctx context.Context, arg SetAvatarUploadSessionImageParams) (AvatarUploadSession, error)
+	UpdateUserAvatarAsset(ctx context.Context, arg UpdateUserAvatarAssetParams) (int64, error)
 	UpdateUserNickname(ctx context.Context, arg UpdateUserNicknameParams) (int64, error)
 	UpdateUserReactionNotifications(ctx context.Context, arg UpdateUserReactionNotificationsParams) (int64, error)
 }

@@ -1141,6 +1141,10 @@ components:
         reaction_enabled:
           type: boolean
 
+    AvatarUploadSessionStatus:
+      type: string
+      enum: [created, presigned, uploaded, committing, completed, failed, canceled, expired]
+
     MeProfile:
       type: object
       required: [nickname]
@@ -1183,6 +1187,75 @@ components:
       properties:
         reaction_enabled:
           type: boolean
+
+    CreateAvatarUploadSessionResponse:
+      type: object
+      required: [session_id, status, expires_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        expires_at:
+          type: string
+          format: date-time
+
+    PresignAvatarImageRequest:
+      type: object
+      required: [image_content_type, image_content_length]
+      properties:
+        image_content_type:
+          type: string
+          example: image/jpeg
+        image_content_length:
+          type: integer
+          format: int64
+          minimum: 1
+        image_sha256:
+          type: string
+          nullable: true
+
+    PresignAvatarImageResponse:
+      type: object
+      required: [session_id, status, image_id, image_upload]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        image_id:
+          type: string
+          format: uuid
+        image_upload:
+          $ref: "#/components/schemas/UploadPresignedTarget"
+
+    CompleteAvatarUploadSessionRequest:
+      type: object
+      required: [image_etag, image_width, image_height]
+      properties:
+        image_etag:
+          type: string
+          minLength: 1
+        image_width:
+          type: integer
+          minimum: 1
+        image_height:
+          type: integer
+          minimum: 1
+
+    CompleteAvatarUploadSessionResponse:
+      type: object
+      required: [session_id, status, profile]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        profile:
+          $ref: "#/components/schemas/MeProfile"
 
     NotificationCoverImage:
       type: object
@@ -2323,6 +2396,114 @@ paths:
                 $ref: "#/components/schemas/MeHomeResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions:
+    post:
+      tags: [Me]
+      operationId: createAvatarUploadSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAvatarUploadSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions/{session_id}/image/presign:
+    post:
+      tags: [Me]
+      operationId: presignAvatarUploadSessionImage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresignAvatarImageRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignAvatarImageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions/{session_id}/complete:
+    post:
+      tags: [Me]
+      operationId: completeAvatarUploadSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteAvatarUploadSessionRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteAvatarUploadSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 

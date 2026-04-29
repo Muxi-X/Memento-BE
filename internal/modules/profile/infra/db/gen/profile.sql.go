@@ -12,6 +12,115 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completeAvatarUploadSession = `-- name: CompleteAvatarUploadSession :one
+UPDATE avatar_upload_sessions
+SET status = 'completed'
+WHERE id = $1
+  AND user_id = $2
+RETURNING id, user_id, image_asset_id, status, expires_at, created_at, updated_at
+`
+
+type CompleteAvatarUploadSessionParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) CompleteAvatarUploadSession(ctx context.Context, arg CompleteAvatarUploadSessionParams) (AvatarUploadSession, error) {
+	row := q.db.QueryRow(ctx, completeAvatarUploadSession, arg.ID, arg.UserID)
+	var i AvatarUploadSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ImageAssetID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createAvatarUploadSession = `-- name: CreateAvatarUploadSession :one
+INSERT INTO avatar_upload_sessions (
+  user_id,
+  status,
+  expires_at
+) VALUES (
+  $1,
+  'created',
+  $2
+)
+RETURNING id, user_id, image_asset_id, status, expires_at, created_at, updated_at
+`
+
+type CreateAvatarUploadSessionParams struct {
+	UserID    uuid.UUID          `json:"user_id"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) CreateAvatarUploadSession(ctx context.Context, arg CreateAvatarUploadSessionParams) (AvatarUploadSession, error) {
+	row := q.db.QueryRow(ctx, createAvatarUploadSession, arg.UserID, arg.ExpiresAt)
+	var i AvatarUploadSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ImageAssetID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const expireAvatarUploadSession = `-- name: ExpireAvatarUploadSession :execrows
+UPDATE avatar_upload_sessions
+SET status = 'expired'
+WHERE id = $1
+  AND user_id = $2
+`
+
+type ExpireAvatarUploadSessionParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) ExpireAvatarUploadSession(ctx context.Context, arg ExpireAvatarUploadSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, expireAvatarUploadSession, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getAvatarUploadSessionForUpdate = `-- name: GetAvatarUploadSessionForUpdate :one
+SELECT id, user_id, image_asset_id, status, expires_at, created_at, updated_at
+FROM avatar_upload_sessions
+WHERE id = $1
+  AND user_id = $2
+FOR UPDATE
+`
+
+type GetAvatarUploadSessionForUpdateParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetAvatarUploadSessionForUpdate(ctx context.Context, arg GetAvatarUploadSessionForUpdateParams) (AvatarUploadSession, error) {
+	row := q.db.QueryRow(ctx, getAvatarUploadSessionForUpdate, arg.ID, arg.UserID)
+	var i AvatarUploadSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ImageAssetID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProfileSettings = `-- name: GetProfileSettings :one
 
 SELECT
@@ -48,6 +157,55 @@ func (q *Queries) GetProfileSettings(ctx context.Context, userID uuid.UUID) (Get
 		&i.ReactionNotificationEnabled,
 	)
 	return i, err
+}
+
+const setAvatarUploadSessionImage = `-- name: SetAvatarUploadSessionImage :one
+UPDATE avatar_upload_sessions
+SET image_asset_id = $3,
+    status = 'presigned'
+WHERE id = $1
+  AND user_id = $2
+RETURNING id, user_id, image_asset_id, status, expires_at, created_at, updated_at
+`
+
+type SetAvatarUploadSessionImageParams struct {
+	ID           uuid.UUID   `json:"id"`
+	UserID       uuid.UUID   `json:"user_id"`
+	ImageAssetID pgtype.UUID `json:"image_asset_id"`
+}
+
+func (q *Queries) SetAvatarUploadSessionImage(ctx context.Context, arg SetAvatarUploadSessionImageParams) (AvatarUploadSession, error) {
+	row := q.db.QueryRow(ctx, setAvatarUploadSessionImage, arg.ID, arg.UserID, arg.ImageAssetID)
+	var i AvatarUploadSession
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ImageAssetID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateUserAvatarAsset = `-- name: UpdateUserAvatarAsset :execrows
+UPDATE user_profiles
+SET current_avatar_asset_id = $2
+WHERE user_id = $1
+`
+
+type UpdateUserAvatarAssetParams struct {
+	UserID               uuid.UUID   `json:"user_id"`
+	CurrentAvatarAssetID pgtype.UUID `json:"current_avatar_asset_id"`
+}
+
+func (q *Queries) UpdateUserAvatarAsset(ctx context.Context, arg UpdateUserAvatarAssetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserAvatarAsset, arg.UserID, arg.CurrentAvatarAssetID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateUserNickname = `-- name: UpdateUserNickname :execrows
