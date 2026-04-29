@@ -132,6 +132,21 @@ func (h *Handler) ListCustomKeywordImages(c *gin.Context, keywordID openapi_type
 	response.JSON(c, http.StatusOK, customKeywordImagesResponse(*out))
 }
 
+// (GET /v1/custom-keywords/{keyword_id}/uploads)
+func (h *Handler) ListCustomKeywordUploads(c *gin.Context, keywordID openapi_types.UUID, params v1gen.ListCustomKeywordUploadsParams) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		writeUnauthorized(c)
+		return
+	}
+	out, err := h.CustomKeywords.ListUploads(c.Request.Context(), userID, uuid.UUID(keywordID), ptrIntValue(params.Limit))
+	if err != nil {
+		writeCustomKeywordError(c, err)
+		return
+	}
+	response.JSON(c, http.StatusOK, customKeywordUploadsResponse(*out))
+}
+
 // (GET /v1/custom/images/{image_id})
 func (h *Handler) GetCustomImage(c *gin.Context, imageID openapi_types.UUID, _ v1gen.GetCustomImageParams) {
 	userID, ok := userIDFromContext(c)
@@ -145,4 +160,19 @@ func (h *Handler) GetCustomImage(c *gin.Context, imageID openapi_types.UUID, _ v
 		return
 	}
 	response.JSON(c, http.StatusOK, customKeywordImageDetailResponse(*out))
+}
+
+// (GET /v1/custom/uploads/{upload_id})
+func (h *Handler) GetCustomUpload(c *gin.Context, uploadID openapi_types.UUID, _ v1gen.GetCustomUploadParams) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		writeUnauthorized(c)
+		return
+	}
+	out, err := h.CustomKeywords.GetUpload(c.Request.Context(), userID, uuid.UUID(uploadID))
+	if err != nil {
+		writeCustomKeywordError(c, err)
+		return
+	}
+	response.JSON(c, http.StatusOK, customKeywordUploadDetailResponse(*out))
 }

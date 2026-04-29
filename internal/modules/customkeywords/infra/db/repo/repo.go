@@ -74,6 +74,25 @@ type KeywordImageDetail struct {
 	CreatedAt         time.Time
 }
 
+type KeywordUploadImage struct {
+	UploadID          uuid.UUID
+	CustomKeywordID   uuid.UUID
+	ImageCount        int32
+	UploadCreatedAt   time.Time
+	ID                uuid.UUID
+	ImageAssetID      uuid.UUID
+	OriginalObjectKey string
+	OriginalWidth     *int32
+	OriginalHeight    *int32
+	DisplayOrder      int32
+	Title             *string
+	Note              *string
+	HasAudio          bool
+	AudioDurationMs   *int32
+	AudioObjectKey    *string
+	ImageCreatedAt    time.Time
+}
+
 type UpdateKeywordInput struct {
 	Text             *string
 	TargetImageCount *int32
@@ -294,6 +313,74 @@ func (r *Repository) GetKeywordImageDetail(ctx context.Context, ownerUserID, ima
 		AudioObjectKey:    textPtr(row.AudioObjectKey),
 		CreatedAt:         row.CreatedAt.Time,
 	}, nil
+}
+
+func (r *Repository) ListKeywordUploadImages(ctx context.Context, ownerUserID, keywordID uuid.UUID, limit int32) ([]KeywordUploadImage, error) {
+	rows, err := r.q.ListCustomKeywordUploadImages(ctx, customkeywordsdb.ListCustomKeywordUploadImagesParams{
+		OwnerUserID: ownerUserID,
+		KeywordID:   keywordID,
+		RowLimit:    limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]KeywordUploadImage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, KeywordUploadImage{
+			UploadID:          row.UploadID,
+			CustomKeywordID:   uuidValue(row.CustomKeywordID),
+			ImageCount:        row.ImageCount,
+			UploadCreatedAt:   row.UploadCreatedAt.Time,
+			ID:                row.ImageID,
+			ImageAssetID:      row.ImageAssetID,
+			OriginalObjectKey: row.OriginalObjectKey,
+			OriginalWidth:     int4Ptr(row.Width),
+			OriginalHeight:    int4Ptr(row.Height),
+			DisplayOrder:      row.DisplayOrder,
+			Title:             textPtr(row.Title),
+			Note:              textPtr(row.Note),
+			HasAudio:          boolValue(row.HasAudio),
+			AudioDurationMs:   int4Ptr(row.AudioDurationMs),
+			AudioObjectKey:    textPtr(row.AudioObjectKey),
+			ImageCreatedAt:    row.ImageCreatedAt.Time,
+		})
+	}
+	return out, nil
+}
+
+func (r *Repository) GetKeywordUploadImages(ctx context.Context, ownerUserID, uploadID uuid.UUID) ([]KeywordUploadImage, error) {
+	rows, err := r.q.GetCustomKeywordUploadImages(ctx, customkeywordsdb.GetCustomKeywordUploadImagesParams{
+		UploadID:    uploadID,
+		OwnerUserID: ownerUserID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, common.ErrNotFound
+	}
+	out := make([]KeywordUploadImage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, KeywordUploadImage{
+			UploadID:          row.UploadID,
+			CustomKeywordID:   uuidValue(row.CustomKeywordID),
+			ImageCount:        row.ImageCount,
+			UploadCreatedAt:   row.UploadCreatedAt.Time,
+			ID:                row.ImageID,
+			ImageAssetID:      row.ImageAssetID,
+			OriginalObjectKey: row.OriginalObjectKey,
+			OriginalWidth:     int4Ptr(row.Width),
+			OriginalHeight:    int4Ptr(row.Height),
+			DisplayOrder:      row.DisplayOrder,
+			Title:             textPtr(row.Title),
+			Note:              textPtr(row.Note),
+			HasAudio:          boolValue(row.HasAudio),
+			AudioDurationMs:   int4Ptr(row.AudioDurationMs),
+			AudioObjectKey:    textPtr(row.AudioObjectKey),
+			ImageCreatedAt:    row.ImageCreatedAt.Time,
+		})
+	}
+	return out, nil
 }
 
 func mapKeyword(row customkeywordsdb.CustomKeyword) Keyword {
