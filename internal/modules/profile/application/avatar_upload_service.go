@@ -218,6 +218,11 @@ func (s *AvatarUploadService) PresignImage(ctx context.Context, in PresignAvatar
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, ErrAvatarUploadExpired) {
+			if expireErr := s.expireAvatarSession(ctx, in.SessionID, in.UserID); expireErr != nil {
+				return nil, expireErr
+			}
+		}
 		return nil, err
 	}
 	return out, nil
@@ -300,6 +305,11 @@ func (s *AvatarUploadService) Complete(ctx context.Context, in CompleteAvatarUpl
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, ErrAvatarUploadExpired) {
+			if expireErr := s.expireAvatarSession(ctx, in.SessionID, in.UserID); expireErr != nil {
+				return nil, expireErr
+			}
+		}
 		return nil, err
 	}
 	return out, nil
@@ -346,6 +356,14 @@ func (s *AvatarUploadService) loadAvatarProfile(ctx context.Context, q profiledb
 		AvatarURL: resolveSquareSmallURL(s.resolver, settings.AvatarObjectKey),
 		Email:     settings.Email,
 	}, nil
+}
+
+func (s *AvatarUploadService) expireAvatarSession(ctx context.Context, sessionID uuid.UUID, userID uuid.UUID) error {
+	_, err := profiledb.New(s.db).ExpireAvatarUploadSession(ctx, profiledb.ExpireAvatarUploadSessionParams{
+		ID:     sessionID,
+		UserID: userID,
+	})
+	return err
 }
 
 func loadAvatarSessionForUpdate(ctx context.Context, q profiledb.Querier, sessionID uuid.UUID, userID uuid.UUID) (profiledb.AvatarUploadSession, error) {
@@ -427,6 +445,24 @@ func buildAvatarObjectKey(prefix string, userID uuid.UUID, sessionID uuid.UUID, 
 }
 
 func extByContentType(contentType string) string {
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(strings.ToLower(contentType)))
+	if err == nil {
+		switch mediaType {
+		case "image/jpeg":
+			return ".jpg"
+		case "image/png":
+			return ".png"
+		case "image/gif":
+			return ".gif"
+		case "image/webp":
+			return ".webp"
+		case "image/heic":
+			return ".heic"
+		case "image/heif":
+			return ".heif"
+		}
+	}
+
 	exts, _ := mime.ExtensionsByType(contentType)
 	for _, ext := range exts {
 		ext = strings.TrimSpace(strings.ToLower(ext))
