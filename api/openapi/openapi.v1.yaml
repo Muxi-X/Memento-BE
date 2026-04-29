@@ -108,7 +108,7 @@ components:
   schemas:
     ErrorCode:
       type: string
-      enum: [validation, unauthorized, forbidden, not_found, conflict, feature_not_ready, internal]
+      enum: [validation, unauthorized, forbidden, not_found, conflict, rate_limited, feature_not_ready, internal]
 
     ErrorResponse:
       type: object
