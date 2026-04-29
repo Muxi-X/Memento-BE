@@ -86,6 +86,46 @@ type ImageDetailOutput struct {
 	CreatedAt       time.Time
 }
 
+type UploadPreviewImageOutput struct {
+	ID              uuid.UUID
+	Image           SquareMediumImageRefOutput
+	DisplayOrder    int32
+	Title           *string
+	Note            *string
+	HasAudio        bool
+	AudioDurationMs *int32
+	CreatedAt       time.Time
+}
+
+type UploadCardOutput struct {
+	ID              uuid.UUID
+	CustomKeywordID uuid.UUID
+	PreviewImages   []UploadPreviewImageOutput
+	ImageCount      int32
+	CreatedAt       time.Time
+}
+
+type UploadImageOutput struct {
+	ID              uuid.UUID
+	Image           DetailLargeImageRefOutput
+	DisplayOrder    int32
+	Title           *string
+	Note            *string
+	HasAudio        bool
+	AudioDurationMs *int32
+	AudioPlayURL    *string
+	CreatedAt       time.Time
+}
+
+type UploadDetailOutput struct {
+	UploadCardOutput
+	Images []UploadImageOutput
+}
+
+type UploadListOutput struct {
+	Items []UploadCardOutput
+}
+
 type SetCoverOutput struct {
 	KeywordID   uuid.UUID
 	CoverSource dcustom.CoverSource
@@ -304,6 +344,22 @@ func (s *Service) ListImages(ctx context.Context, ownerUserID, keywordID uuid.UU
 	}, nil
 }
 
+func (s *Service) ListUploads(ctx context.Context, ownerUserID, keywordID uuid.UUID, limit int) (*UploadListOutput, error) {
+	if ownerUserID == uuid.Nil || keywordID == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
+	if _, err := s.repo.GetKeywordByIDForUser(ctx, keywordID, ownerUserID); err != nil {
+		return nil, err
+	}
+	rows, err := s.repo.ListKeywordUploadImages(ctx, ownerUserID, keywordID, clampLimit(limit, 20, 50))
+	if err != nil {
+		return nil, err
+	}
+	return &UploadListOutput{
+		Items: s.uploadCardsOutput(rows),
+	}, nil
+}
+
 func (s *Service) GetImage(ctx context.Context, ownerUserID, imageID uuid.UUID) (*ImageDetailOutput, error) {
 	if ownerUserID == uuid.Nil || imageID == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -335,6 +391,100 @@ func (s *Service) GetImage(ctx context.Context, ownerUserID, imageID uuid.UUID) 
 		AudioPlayURL:    s.resolvePtr(row.AudioObjectKey),
 		CreatedAt:       row.CreatedAt,
 	}, nil
+}
+
+func (s *Service) GetUpload(ctx context.Context, ownerUserID, uploadID uuid.UUID) (*UploadDetailOutput, error) {
+	if ownerUserID == uuid.Nil || uploadID == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
+	rows, err := s.repo.GetKeywordUploadImages(ctx, ownerUserID, uploadID)
+	if err != nil {
+		return nil, err
+	}
+	cards := s.uploadCardsOutput(rows)
+	if len(cards) == 0 {
+		return nil, common.ErrNotFound
+	}
+	images := make([]UploadImageOutput, 0, len(rows))
+	for _, row := range rows {
+		images = append(images, s.uploadDetailImageOutput(row))
+	}
+	return &UploadDetailOutput{
+		UploadCardOutput: cards[0],
+		Images:           images,
+	}, nil
+}
+
+func (s *Service) uploadCardsOutput(rows []repo.KeywordUploadImage) []UploadCardOutput {
+	items := make([]UploadCardOutput, 0)
+	itemIndexes := make(map[uuid.UUID]int)
+	for _, row := range rows {
+		index, ok := itemIndexes[row.UploadID]
+		if !ok {
+			items = append(items, UploadCardOutput{
+				ID:              row.UploadID,
+				CustomKeywordID: row.CustomKeywordID,
+				PreviewImages:   make([]UploadPreviewImageOutput, 0),
+				ImageCount:      row.ImageCount,
+				CreatedAt:       row.UploadCreatedAt,
+			})
+			index = len(items) - 1
+			itemIndexes[row.UploadID] = index
+		}
+		items[index].PreviewImages = append(items[index].PreviewImages, s.uploadPreviewImageOutput(row))
+	}
+	return items
+}
+
+func (s *Service) uploadPreviewImageOutput(row repo.KeywordUploadImage) UploadPreviewImageOutput {
+	return UploadPreviewImageOutput{
+		ID:              row.ID,
+		Image:           s.squareMediumImageRef(row),
+		DisplayOrder:    row.DisplayOrder,
+		Title:           row.Title,
+		Note:            row.Note,
+		HasAudio:        row.HasAudio,
+		AudioDurationMs: row.AudioDurationMs,
+		CreatedAt:       row.ImageCreatedAt,
+	}
+}
+
+func (s *Service) uploadDetailImageOutput(row repo.KeywordUploadImage) UploadImageOutput {
+	return UploadImageOutput{
+		ID:              row.ID,
+		Image:           s.detailLargeImageRef(row),
+		DisplayOrder:    row.DisplayOrder,
+		Title:           row.Title,
+		Note:            row.Note,
+		HasAudio:        row.HasAudio,
+		AudioDurationMs: row.AudioDurationMs,
+		AudioPlayURL:    s.resolvePtr(row.AudioObjectKey),
+		CreatedAt:       row.ImageCreatedAt,
+	}
+}
+
+func (s *Service) squareMediumImageRef(row repo.KeywordUploadImage) SquareMediumImageRefOutput {
+	out := SquareMediumImageRefOutput{ID: row.ImageAssetID}
+	if variant := s.resolveSquareMedium(row.OriginalObjectKey); variant != nil {
+		out.SquareMedium = ImageVariantOutput{
+			URL:    variant.URL,
+			Width:  variant.Width,
+			Height: variant.Height,
+		}
+	}
+	return out
+}
+
+func (s *Service) detailLargeImageRef(row repo.KeywordUploadImage) DetailLargeImageRefOutput {
+	out := DetailLargeImageRefOutput{ID: row.ImageAssetID}
+	if variant := s.resolveDetailLarge(row.OriginalObjectKey, row.OriginalWidth, row.OriginalHeight); variant != nil {
+		out.DetailLarge = ImageVariantOutput{
+			URL:    variant.URL,
+			Width:  variant.Width,
+			Height: variant.Height,
+		}
+	}
+	return out
 }
 
 func (s *Service) keywordItemOutput(ctx context.Context, keyword repo.Keyword, imageCount int32) (KeywordItemOutput, error) {

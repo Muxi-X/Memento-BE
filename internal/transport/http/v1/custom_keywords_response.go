@@ -88,6 +88,91 @@ func customKeywordImagesResponse(out customapp.GalleryOutput) v1gen.ListCustomKe
 	return resp
 }
 
+func customKeywordUploadsResponse(out customapp.UploadListOutput) v1gen.ListCustomKeywordUploadsResponse {
+	items := make([]v1gen.CustomKeywordUploadCard, 0, len(out.Items))
+	for _, item := range out.Items {
+		items = append(items, customKeywordUploadCardResponse(item))
+	}
+	return v1gen.ListCustomKeywordUploadsResponse{Items: items}
+}
+
+func customKeywordUploadCardResponse(item customapp.UploadCardOutput) v1gen.CustomKeywordUploadCard {
+	return v1gen.CustomKeywordUploadCard{
+		Id:              openapi_types.UUID(item.ID),
+		CustomKeywordId: openapi_types.UUID(item.CustomKeywordID),
+		PreviewImages:   customKeywordUploadPreviewImagesResponse(item.PreviewImages),
+		ImageCount:      int(item.ImageCount),
+		CreatedAt:       item.CreatedAt,
+	}
+}
+
+func customKeywordUploadPreviewImagesResponse(items []customapp.UploadPreviewImageOutput) []v1gen.CustomKeywordUploadPreviewImage {
+	out := make([]v1gen.CustomKeywordUploadPreviewImage, 0, len(items))
+	for _, item := range items {
+		image := v1gen.ImageRefSquareMedium{Id: openapi_types.UUID(item.Image.ID)}
+		image.Variants.SquareMedium = v1gen.ImageVariant{
+			Url:    item.Image.SquareMedium.URL,
+			Width:  int(item.Image.SquareMedium.Width),
+			Height: int(item.Image.SquareMedium.Height),
+		}
+		resp := v1gen.CustomKeywordUploadPreviewImage{
+			Id:           openapi_types.UUID(item.ID),
+			Image:        image,
+			DisplayOrder: int(item.DisplayOrder),
+			Title:        item.Title,
+			Note:         item.Note,
+			HasAudio:     item.HasAudio,
+			CreatedAt:    item.CreatedAt,
+		}
+		if item.AudioDurationMs != nil {
+			v := int(*item.AudioDurationMs)
+			resp.AudioDurationMs = &v
+		}
+		out = append(out, resp)
+	}
+	return out
+}
+
+func customKeywordUploadDetailResponse(out customapp.UploadDetailOutput) v1gen.CustomKeywordUploadDetail {
+	card := customKeywordUploadCardResponse(out.UploadCardOutput)
+	return v1gen.CustomKeywordUploadDetail{
+		Id:              card.Id,
+		CustomKeywordId: card.CustomKeywordId,
+		PreviewImages:   card.PreviewImages,
+		ImageCount:      card.ImageCount,
+		CreatedAt:       card.CreatedAt,
+		Images:          customKeywordUploadWorkImagesResponse(out.Images),
+	}
+}
+
+func customKeywordUploadWorkImagesResponse(items []customapp.UploadImageOutput) []v1gen.WorkImage {
+	out := make([]v1gen.WorkImage, 0, len(items))
+	for _, item := range items {
+		image := v1gen.ImageRefDetailLarge{Id: openapi_types.UUID(item.Image.ID)}
+		image.Variants.DetailLarge = v1gen.ImageVariant{
+			Url:    item.Image.DetailLarge.URL,
+			Width:  int(item.Image.DetailLarge.Width),
+			Height: int(item.Image.DetailLarge.Height),
+		}
+		resp := v1gen.WorkImage{
+			Id:           openapi_types.UUID(item.ID),
+			Image:        image,
+			DisplayOrder: int(item.DisplayOrder),
+			Title:        item.Title,
+			Note:         item.Note,
+			HasAudio:     item.HasAudio,
+			CreatedAt:    item.CreatedAt,
+			AudioPlayUrl: item.AudioPlayURL,
+		}
+		if item.AudioDurationMs != nil {
+			v := int(*item.AudioDurationMs)
+			resp.AudioDurationMs = &v
+		}
+		out = append(out, resp)
+	}
+	return out
+}
+
 func customKeywordImageDetailResponse(out customapp.ImageDetailOutput) v1gen.CustomKeywordImageDetail {
 	image := v1gen.ImageRefDetailLarge{Id: openapi_types.UUID(out.Image.ID)}
 	image.Variants.DetailLarge = v1gen.ImageVariant{

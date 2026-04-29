@@ -976,6 +976,80 @@ components:
           type: string
           format: date-time
 
+    CustomKeywordUploadPreviewImage:
+      type: object
+      required: [id, image, display_order, has_audio, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: work_upload_images.id
+        image:
+          $ref: "#/components/schemas/ImageRefSquareMedium"
+        display_order:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        has_audio:
+          type: boolean
+        audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CustomKeywordUploadCard:
+      type: object
+      required: [id, custom_keyword_id, preview_images, image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: work_uploads.id. Use this as upload_id for the custom upload detail endpoint.
+        custom_keyword_id:
+          type: string
+          format: uuid
+        preview_images:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordUploadPreviewImage"
+          description: All images in this upload, rendered with square_medium variants for list preview.
+        image_count:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+
+    CustomKeywordUploadDetail:
+      allOf:
+        - $ref: "#/components/schemas/CustomKeywordUploadCard"
+        - type: object
+          required: [images]
+          properties:
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkImage"
+
+    ListCustomKeywordUploadsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordUploadCard"
+
     ReviewMyWorkUploadCard:
       type: object
       required: [id, biz_date, keyword_id, cover_image, image_count, created_at]
@@ -2006,10 +2080,51 @@ paths:
           $ref: "#/components/responses/InternalError"
 
 
+  /v1/custom-keywords/{keyword_id}/uploads:
+    get:
+      tags: [CustomKeywords]
+      operationId: listCustomKeywordUploads
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: Number of upload groups to return, not image count.
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListCustomKeywordUploadsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/custom-keywords/{keyword_id}/images:
     get:
       tags: [CustomKeywords]
       operationId: listCustomKeywordImages
+      deprecated: true
       security:
         - bearerAuth: []
       parameters:
@@ -2045,10 +2160,42 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/custom/uploads/{upload_id}:
+    get:
+      tags: [CustomKeywords]
+      operationId: getCustomUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomKeywordUploadDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/custom/images/{image_id}:
     get:
       tags: [CustomKeywords]
       operationId: getCustomImage
+      deprecated: true
       security:
         - bearerAuth: []
       parameters:
