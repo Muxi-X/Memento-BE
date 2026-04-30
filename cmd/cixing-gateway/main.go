@@ -65,28 +65,27 @@ func main() {
 		Email:      contactEmail,
 	}
 
+	// Use the manager's TLS config so the ACME ALPN protocol (acme-tls/1)
+	// is enabled when Let's Encrypt chooses tls-alpn-01 challenges.
+	tlsCfg := m.TLSConfig()
+	tlsCfg.MinVersion = tls.VersionTLS12
+
 	httpsSrv := &http.Server{
 		Addr:              defaultHTTPSAddr,
 		Handler:           proxy,
 		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig: &tls.Config{
-			GetCertificate: m.GetCertificate,
-			MinVersion:     tls.VersionTLS12,
-		},
+		TLSConfig:         tlsCfg,
 	}
 
 	// HTTP server for ACME HTTP-01 challenge and HTTPS redirect.
+	redirectToHTTPS := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		target := "https://" + domain + r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+	})
 	httpSrv := &http.Server{
 		Addr:              defaultHTTPAddr,
 		ReadHeaderTimeout: 10 * time.Second,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
-				m.HTTPHandler(nil).ServeHTTP(w, r)
-				return
-			}
-			target := "https://" + domain + r.URL.RequestURI()
-			http.Redirect(w, r, target, http.StatusPermanentRedirect)
-		}),
+		Handler:           m.HTTPHandler(redirectToHTTPS),
 	}
 
 	errCh := make(chan error, 2)
