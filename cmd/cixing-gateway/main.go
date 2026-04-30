@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -69,6 +70,25 @@ func main() {
 	// is enabled when Let's Encrypt chooses tls-alpn-01 challenges.
 	tlsCfg := m.TLSConfig()
 	tlsCfg.MinVersion = tls.VersionTLS12
+	// Some clients (or proxies) may drop SNI, or send an IP address as ServerName.
+	// autocert requires a hostname to select a certificate; fallback to the only
+	// allowed domain so these clients don't see connection resets.
+	origGetCert := tlsCfg.GetCertificate
+	tlsCfg.GetCertificate = func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if chi == nil {
+			return origGetCert(chi)
+		}
+		sni := strings.TrimSpace(chi.ServerName)
+		if sni == "" || net.ParseIP(sni) != nil {
+			chi2 := *chi
+			chi2.ServerName = domain
+			if chi.Conn != nil {
+				log.Printf("gateway: missing/invalid SNI from %s, falling back to %s", chi.Conn.RemoteAddr().String(), domain)
+			}
+			return origGetCert(&chi2)
+		}
+		return origGetCert(chi)
+	}
 
 	httpsSrv := &http.Server{
 		Addr:              defaultHTTPSAddr,
