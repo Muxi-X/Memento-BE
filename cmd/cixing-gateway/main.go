@@ -97,7 +97,7 @@ func main() {
 		}
 	}()
 	go func() {
-	log.Printf("gateway: listening on %s for HTTPS reverse proxy -> %s (domain=%s)", httpsSrv.Addr, redactedURLString(backend), domain)
+		log.Printf("gateway: listening on %s for HTTPS reverse proxy -> %s (domain=%s)", httpsSrv.Addr, redactedURLString(backend), domain)
 		if err := httpsSrv.ListenAndServeTLS("", ""); err != nil {
 			errCh <- err
 		}
