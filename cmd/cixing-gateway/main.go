@@ -120,18 +120,16 @@ func main() {
 func newReverseProxy(backend *url.URL) http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 
-	// NewSingleHostReverseProxy sets a default Director.
-	// Override it here (and DO NOT set Rewrite) to keep Go 1.26+ happy.
-	proxy.Director = func(req *http.Request) {
-		forwardedHost := req.Host
-
-		// Keep req.URL.Path / RawPath / RawQuery intact.
-		req.URL.Scheme = backend.Scheme
-		req.URL.Host = backend.Host
-		req.Host = backend.Host
-
-		req.Header.Set("X-Forwarded-Host", forwardedHost)
-		req.Header.Set("X-Forwarded-Proto", "https")
+	// Keep upstream path exactly as requested.
+	proxy.Rewrite = func(r *httputil.ProxyRequest) {
+		r.SetURL(backend)
+		// Preserve original path + query.
+		r.Out.URL.Path = r.In.URL.Path
+		r.Out.URL.RawPath = r.In.URL.RawPath
+		r.Out.URL.RawQuery = r.In.URL.RawQuery
+		r.Out.Host = backend.Host
+		r.Out.Header.Set("X-Forwarded-Host", r.In.Host)
+		r.Out.Header.Set("X-Forwarded-Proto", "https")
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
@@ -150,7 +148,11 @@ func newReverseProxy(backend *url.URL) http.Handler {
 		return nil
 	}
 
-	return proxy
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Normalize Host for upstream routing.
+		r.Host = backend.Host
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func redactedURLString(u *url.URL) string {
