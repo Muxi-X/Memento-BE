@@ -86,6 +86,9 @@ go run ./cmd/cixing-api
 - 域名解析到该机器（例如 `cixing.duckdns.org`）
 - 安全组/防火墙放行 `80/443`
 
+注意：Let's Encrypt 的 http-01 验证会从公网访问 `http://<domain>/.well-known/acme-challenge/...`。
+如果域名或 IP 被云厂商的“备案/拦截页”劫持（例如返回 `Server: Beaver` 或提示 ICP block），证书签发会失败。
+
 相关环境变量（见 `configs/env.example`）：
 - `DOMAIN`：证书域名与 Nginx `server_name`
 - `NGINX_IMAGE`、`CERTBOT_IMAGE`：可选，默认使用稳定镜像

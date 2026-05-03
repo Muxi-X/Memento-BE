@@ -249,10 +249,10 @@ jobs:
               domain="cixing.duckdns.org"
             fi
 
-            if ! compose run --rm -T certbot /bin/sh -c "test -f /etc/letsencrypt/live/$domain/fullchain.pem" </dev/null; then
+            if ! compose run --rm -T --no-deps --entrypoint /bin/sh certbot -c "test -f /etc/letsencrypt/live/$domain/fullchain.pem" </dev/null; then
               echo "requesting initial Let's Encrypt certificate for domain=$domain"
               # Ensure Nginx is serving the ACME webroot before calling certbot.
-              compose run --rm -T certbot certonly --webroot -w /var/www/certbot \
+              compose run --rm -T --no-deps --entrypoint certbot certbot certonly --webroot -w /var/www/certbot \
                 --email "admin@$domain" --agree-tos --no-eff-email \
                 -d "$domain" </dev/null
               echo "restarting nginx to enable 443"
