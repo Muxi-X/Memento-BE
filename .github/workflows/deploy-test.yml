@@ -213,12 +213,6 @@ jobs:
             }
             chmod 600 /opt/cixing/deploy.env
             chmod 644 /opt/cixing/config/config.yaml
-
-            # autocert cache must be writable by the gateway container user (uid=10001)
-            sudo mkdir -p /opt/cixing/autocert
-            sudo chown -R 10001:10001 /opt/cixing/autocert
-            sudo chmod 700 /opt/cixing/autocert
-
             cleanup_existing_compose_state
             gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
@@ -291,7 +285,6 @@ jobs:
             if ! https_ready; then
               compose ps
               compose logs --tail=200 gateway || true
-              compose logs --tail=200 api || true
               echo "https readiness check failed: $https_error" >&2
               exit 1
             fi
