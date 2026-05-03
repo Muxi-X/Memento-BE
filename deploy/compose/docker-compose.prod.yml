@@ -55,7 +55,8 @@ services:
     volumes:
       - /opt/cixing/config/config.yaml:/app/config/config.yaml:ro
     ports:
-      - "${API_PORT:-8080}:8080"
+      # Keep a local debug port, but prefer exposing only via Nginx (80/443).
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +68,44 @@ services:
       timeout: 3s
       retries: 12
 
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    restart: unless-stopped
+    environment:
+      # Used by the entrypoint script to generate Nginx config.
+      DOMAIN: ${DOMAIN:-cixing.duckdns.org}
+      UPSTREAM: ${NGINX_UPSTREAM:-api:8080}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot_www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+      - /opt/cixing/nginx/entrypoint/99-gen-conf.sh:/docker-entrypoint.d/99-gen-conf.sh:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  certbot:
+    image: ${CERTBOT_IMAGE:-certbot/certbot:v2.11.0}
+    restart: unless-stopped
+    volumes:
+      - certbot_www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    # Renew twice per day. Nginx reload after renewal is not automatic; reload on host when needed.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet || true
+          sleep 12h
+        done
+    depends_on:
+      - nginx
+
 volumes:
   cixing_pgdata:
   cixing_redis:
-
+  certbot_www:
+  letsencrypt:

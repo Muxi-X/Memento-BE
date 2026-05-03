@@ -75,6 +75,21 @@ go run ./cmd/cixing-api
 - 本地 compose 不提供对象存储模拟
 - 上传相关功能仍然需要有效的 `oss` 配置
 
+## 生产部署（HTTPS）
+
+`deploy/compose/docker-compose.prod.yml` 已内置 `nginx + certbot`：
+- Nginx 监听 `80/443`，`80` 自动跳转到 `443`
+- 使用 Let's Encrypt (http-01) 签发证书，证书持久化在 `letsencrypt` volume
+- API 端口默认仅绑定 `127.0.0.1:${API_PORT:-8080}` 供本机调试，外部访问走 Nginx
+
+部署机需要：
+- 域名解析到该机器（例如 `cixing.duckdns.org`）
+- 安全组/防火墙放行 `80/443`
+
+相关环境变量（见 `configs/env.example`）：
+- `DOMAIN`：证书域名与 Nginx `server_name`
+- `NGINX_IMAGE`、`CERTBOT_IMAGE`：可选，默认使用稳定镜像
+
 ## 常用命令
 ```bash
 make -f Makefile/makefile help

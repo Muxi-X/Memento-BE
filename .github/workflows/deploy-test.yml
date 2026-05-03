@@ -18,6 +18,8 @@ env:
   POSTGRES_IMAGE: postgres:16-alpine
   REDIS_IMAGE: redis:7-alpine
   MAILPIT_IMAGE: axllent/mailpit:v1.29.7
+  NGINX_IMAGE: nginx:1.27-alpine
+  CERTBOT_IMAGE: certbot/certbot:v2.11.0
 
 jobs:
   deploy:
@@ -55,6 +57,8 @@ jobs:
           docker pull --platform linux/amd64 "$POSTGRES_IMAGE"
           docker pull --platform linux/amd64 "$REDIS_IMAGE"
           docker pull --platform linux/amd64 "$MAILPIT_IMAGE"
+          docker pull --platform linux/amd64 "$NGINX_IMAGE"
+          docker pull --platform linux/amd64 "$CERTBOT_IMAGE"
 
       - name: Save deployment images
         run: |
@@ -64,6 +68,8 @@ jobs:
           docker save "$POSTGRES_IMAGE" | gzip > /tmp/cixing-deploy/images/postgres.tar.gz
           docker save "$REDIS_IMAGE" | gzip > /tmp/cixing-deploy/images/redis.tar.gz
           docker save "$MAILPIT_IMAGE" | gzip > /tmp/cixing-deploy/images/mailpit.tar.gz
+          docker save "$NGINX_IMAGE" | gzip > /tmp/cixing-deploy/images/nginx.tar.gz
+          docker save "$CERTBOT_IMAGE" | gzip > /tmp/cixing-deploy/images/certbot.tar.gz
 
       - name: Prepare deployment files
         env:
@@ -73,15 +79,20 @@ jobs:
           set -eu
           mkdir -p /tmp/cixing-deploy
           cp deploy/compose/docker-compose.prod.yml /tmp/cixing-deploy/docker-compose.yml
+          mkdir -p /tmp/cixing-deploy/nginx/entrypoint
+          cp deploy/nginx/entrypoint/99-gen-conf.sh /tmp/cixing-deploy/nginx/entrypoint/99-gen-conf.sh
           printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
             echo "CIXING_IMAGE=${CIXING_IMAGE}"
             echo "POSTGRES_IMAGE=${POSTGRES_IMAGE}"
             echo "REDIS_IMAGE=${REDIS_IMAGE}"
             echo "MAILPIT_IMAGE=${MAILPIT_IMAGE}"
+            echo "NGINX_IMAGE=${NGINX_IMAGE}"
+            echo "CERTBOT_IMAGE=${CERTBOT_IMAGE}"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
+            echo "DOMAIN=cixing.duckdns.org"
           } > /tmp/cixing-deploy/deploy.env
 
       - name: Configure SSH
@@ -102,13 +113,15 @@ jobs:
         run: |
           set -eu
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config /opt/cixing/images && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+            "sudo mkdir -p /opt/cixing/config /opt/cixing/images /opt/cixing/nginx/entrypoint && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/docker-compose.yml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/deploy.env \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/nginx/entrypoint/99-gen-conf.sh \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/nginx/entrypoint/99-gen-conf.sh"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/cixing-api.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/cixing-api.tar.gz"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/postgres.tar.gz \
@@ -117,6 +130,10 @@ jobs:
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/redis.tar.gz"
           scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/mailpit.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/mailpit.tar.gz"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/nginx.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/nginx.tar.gz"
+          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/certbot.tar.gz \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/certbot.tar.gz"
 
       - name: Deploy on ECS
         env:
@@ -146,6 +163,16 @@ jobs:
                 $DOCKER network rm $legacy_network_ids >/dev/null 2>&1 || true
               fi
               if command -v ss >/dev/null 2>&1; then
+                if ss -lntp 2>/dev/null | grep -q ':80 '; then
+                  echo "port 80 is still occupied before deployment" >&2
+                  ss -lntp 2>/dev/null | grep ':80 ' >&2 || true
+                  exit 1
+                fi
+                if ss -lntp 2>/dev/null | grep -q ':443 '; then
+                  echo "port 443 is still occupied before deployment" >&2
+                  ss -lntp 2>/dev/null | grep ':443 ' >&2 || true
+                  exit 1
+                fi
                 if ss -lntp 2>/dev/null | grep -q ':8080 '; then
                   echo "port 8080 is still occupied before deployment" >&2
                   ss -lntp 2>/dev/null | grep ':8080 ' >&2 || true
@@ -198,11 +225,14 @@ jobs:
             }
             chmod 600 /opt/cixing/deploy.env
             chmod 644 /opt/cixing/config/config.yaml
+            chmod 755 /opt/cixing/nginx/entrypoint/99-gen-conf.sh
             cleanup_existing_compose_state
             gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
             gzip -dc /opt/cixing/images/mailpit.tar.gz | $DOCKER load
+            gzip -dc /opt/cixing/images/nginx.tar.gz | $DOCKER load
+            gzip -dc /opt/cixing/images/certbot.tar.gz | $DOCKER load
             echo "starting dependency services"
             compose up -d postgres redis mailpit
             echo "running database migrations"
@@ -210,6 +240,29 @@ jobs:
             echo "database migrations completed"
             echo "starting api service"
             compose up -d api
+
+            echo "starting nginx on port 80"
+            compose up -d nginx
+
+            domain="$(awk -F= '$1=="DOMAIN"{print $2}' /opt/cixing/deploy.env)"
+            if [ -z "$domain" ]; then
+              domain="cixing.duckdns.org"
+            fi
+
+            if ! compose run --rm -T certbot /bin/sh -c "test -f /etc/letsencrypt/live/$domain/fullchain.pem" </dev/null; then
+              echo "requesting initial Let's Encrypt certificate for domain=$domain"
+              # Ensure Nginx is serving the ACME webroot before calling certbot.
+              compose run --rm -T certbot certonly --webroot -w /var/www/certbot \
+                --email "admin@$domain" --agree-tos --no-eff-email \
+                -d "$domain" </dev/null
+              echo "restarting nginx to enable 443"
+              compose restart nginx
+            else
+              echo "existing certificate found for domain=$domain; skipping initial issuance"
+            fi
+
+            echo "starting certbot renewal loop"
+            compose up -d certbot
 
             attempts=0
             api_state=""
