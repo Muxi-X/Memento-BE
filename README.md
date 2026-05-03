@@ -131,18 +131,3 @@ make -f Makefile/makefile it
 - 结束后自动清理测试容器
 
 运行集成测试前需要先确保本机 Docker Engine 已启动。
-
-## 测试环境 HTTPS（DuckDNS + autocert）
-测试环境通过一个轻量的网关容器在宿主机监听 `80/443`，使用 `autocert` 自动签发/续期证书，并将请求反向代理到 `api:8080`。
-
-关键文件：
-- `cmd/cixing-gateway/`：HTTPS 网关（autocert + reverse proxy）
-- `deploy/compose/docker-compose.test-https.yml`：测试环境 HTTPS Compose
-- `.github/workflows/deploy-test.yml`：测试环境部署 workflow（会部署上述 compose）
-
-访问方式：
-- 接口：`https://cixing.duckdns.org`（例如 `https://cixing.duckdns.org/healthz`）
-
-注意：
-- `80/tcp` 必须对公网开放（ACME HTTP-01 校验需要）
-- 证书缓存会写入宿主机 `/opt/cixing/autocert`，避免重启反复签发

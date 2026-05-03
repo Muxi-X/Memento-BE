@@ -15,9 +15,7 @@ ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 	go build -trimpath -ldflags="-s -w" -o /out/cixing-api ./cmd/cixing-api && \
 	CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-	go build -trimpath -ldflags="-s -w" -o /out/cixing-migrate ./cmd/cixing-migrate && \
-	CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-	go build -trimpath -ldflags="-s -w" -o /out/cixing-gateway ./cmd/cixing-gateway
+	go build -trimpath -ldflags="-s -w" -o /out/cixing-migrate ./cmd/cixing-migrate
 
 FROM alpine:3.20
 
@@ -28,7 +26,6 @@ WORKDIR /app
 
 COPY --from=builder /out/cixing-api /app/cixing-api
 COPY --from=builder /out/cixing-migrate /app/cixing-migrate
-COPY --from=builder /out/cixing-gateway /app/cixing-gateway
 COPY --from=builder /src/db/migrations /app/db/migrations
 
 RUN chown -R cixing:cixing /app

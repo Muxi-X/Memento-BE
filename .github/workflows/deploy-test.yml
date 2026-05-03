@@ -72,7 +72,7 @@ jobs:
         run: |
           set -eu
           mkdir -p /tmp/cixing-deploy
-          cp deploy/compose/docker-compose.test-https.yml /tmp/cixing-deploy/docker-compose.yml
+          cp deploy/compose/docker-compose.prod.yml /tmp/cixing-deploy/docker-compose.yml
           printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
             echo "CIXING_IMAGE=${CIXING_IMAGE}"
@@ -80,8 +80,8 @@ jobs:
             echo "REDIS_IMAGE=${REDIS_IMAGE}"
             echo "MAILPIT_IMAGE=${MAILPIT_IMAGE}"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
+            echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
-            echo "GATEWAY_DOMAIN=cixing.duckdns.org"
           } > /tmp/cixing-deploy/deploy.env
 
       - name: Configure SSH
@@ -146,13 +146,11 @@ jobs:
                 $DOCKER network rm $legacy_network_ids >/dev/null 2>&1 || true
               fi
               if command -v ss >/dev/null 2>&1; then
-                for port in 80 443; do
-                  if ss -lntp 2>/dev/null | grep -q ":$port "; then
-                    echo "port $port is still occupied before deployment" >&2
-                    ss -lntp 2>/dev/null | grep ":$port " >&2 || true
-                    exit 1
-                  fi
-                done
+                if ss -lntp 2>/dev/null | grep -q ':8080 '; then
+                  echo "port 8080 is still occupied before deployment" >&2
+                  ss -lntp 2>/dev/null | grep ':8080 ' >&2 || true
+                  exit 1
+                fi
               fi
             }
             dump_api_diagnostics() {
@@ -194,19 +192,6 @@ jobs:
               fi
               if ! $DOCKER exec "$api_container_id" /bin/sh -c 'wget -qO- http://127.0.0.1:8080/healthz >/dev/null'; then
                 api_health="healthz_failed"
-                return 1
-              fi
-              return 0
-            }
-
-
-            https_ready() {
-              if ! command -v curl >/dev/null 2>&1; then
-                https_error="curl_missing"
-                return 1
-              fi
-              if ! curl -fsS --connect-timeout 4 --max-time 12 "https://cixing.duckdns.org/healthz" >/dev/null; then
-                https_error="healthz_failed"
                 return 1
               fi
               return 0
@@ -268,28 +253,6 @@ jobs:
               fi
               exit 1
             fi
-
-            echo "starting https gateway service"
-            compose up -d gateway
-
-            attempts=0
-            https_error=""
-            echo "waiting for https readiness"
-            while [ "$attempts" -lt 30 ]; do
-              if https_ready; then
-                break
-              fi
-              attempts=$((attempts + 1))
-              sleep 4
-            done
-            if ! https_ready; then
-              compose ps
-              compose logs --tail=200 gateway || true
-              echo "https readiness check failed: $https_error" >&2
-              exit 1
-            fi
-
-            echo "https readiness check passed"
 
             final_api_container_id="$(compose ps -q api)"
             if [ -z "$final_api_container_id" ]; then
