@@ -73,7 +73,7 @@ services:
     restart: unless-stopped
     environment:
       # Used by the entrypoint script to generate Nginx config.
-      DOMAIN: ${DOMAIN:-cixing.duckdns.org}
+      DOMAIN: ${DOMAIN:-test.memento.muxixyz.com}
       UPSTREAM: ${NGINX_UPSTREAM:-api:8080}
     ports:
       - "80:80"

@@ -92,7 +92,7 @@ jobs:
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
-            echo "DOMAIN=cixing.duckdns.org"
+            echo "DOMAIN=test.memento.muxixyz.com"
           } > /tmp/cixing-deploy/deploy.env
 
       - name: Configure SSH
@@ -246,7 +246,7 @@ jobs:
 
             domain="$(awk -F= '$1=="DOMAIN"{print $2}' /opt/cixing/deploy.env)"
             if [ -z "$domain" ]; then
-              domain="cixing.duckdns.org"
+              domain="test.memento.muxixyz.com"
             fi
 
             if ! compose run --rm -T certbot /bin/sh -c "test -f /etc/letsencrypt/live/$domain/fullchain.pem" </dev/null; then

@@ -83,7 +83,7 @@ go run ./cmd/cixing-api
 - API 端口默认仅绑定 `127.0.0.1:${API_PORT:-8080}` 供本机调试，外部访问走 Nginx
 
 部署机需要：
-- 域名解析到该机器（例如 `cixing.duckdns.org`）
+- 域名解析到该机器（例如 `test.memento.muxixyz.com`）
 - 安全组/防火墙放行 `80/443`
 
 相关环境变量（见 `configs/env.example`）：
