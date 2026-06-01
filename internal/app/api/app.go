@@ -131,7 +131,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	objectStorage, err := platformoss.NewStorage(ctx, cfg.OSS)
+	objectStorage, err := platformoss.NewStorage(cfg.OSS)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package oss
 
 import (
-	"net/url"
 	"strings"
 )
 
@@ -77,7 +76,9 @@ func (r *URLResolver) ResolveObjectKey(objectKey string) string {
 	return r.publicBaseURL + "/" + objectKey
 }
 
-// 在 URL 后加 OSS 样式
+// 在 URL 后拼接七牛云 fop 图片处理参数。
+// 从阿里云 OSS 迁移后，不再使用 x-oss-process 样式语法，
+// 改为直接拼接原始处理参数（如 imageView2、imageMogr2）。
 func (r *URLResolver) ResolveObjectKeyWithStyle(objectKey string, style string) string {
 	base := r.ResolveObjectKey(objectKey)
 	if base == "" {
@@ -85,9 +86,9 @@ func (r *URLResolver) ResolveObjectKeyWithStyle(objectKey string, style string) 
 	}
 	style = strings.TrimSpace(style)
 	if style == "" {
-		return base // 没有样式直接返回原 URL
+		return base
 	}
-	return base + "?x-oss-process=style/" + url.QueryEscape(style)
+	return base + "?" + style
 }
 
 // 下面是一些常用样式的快捷方法

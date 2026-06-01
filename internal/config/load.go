@@ -76,17 +76,8 @@ func applyEnv(cfg *Config) error {
 		return err
 	}
 
-	setString(&cfg.OSS.CredentialMode, EnvOSSCredentialMode)
-	setString(&cfg.OSS.ECSRoleName, EnvOSSECSRoleName)
 	setString(&cfg.OSS.AccessKeyID, EnvOSSAccessKeyID)
 	setString(&cfg.OSS.AccessKeySecret, EnvOSSAccessKeySecret)
-	setString(&cfg.OSS.AssumeRoleARN, EnvOSSAssumeRoleARN)
-	setString(&cfg.OSS.AssumeRoleSessionName, EnvOSSAssumeRoleSessionName)
-	setString(&cfg.OSS.AssumeRoleExternalID, EnvOSSAssumeRoleExternalID)
-	setString(&cfg.OSS.AssumeRoleSTSEndpoint, EnvOSSAssumeRoleSTSEndpoint)
-	if err := setDuration(&cfg.OSS.AssumeRoleSessionDuration, EnvOSSAssumeRoleSessionDuration); err != nil {
-		return err
-	}
 	setPEM(&cfg.JWT.PrivateKeyPEM, EnvJWTPrivatePEM)
 	setPEM(&cfg.JWT.PublicKeyPEM, EnvJWTPublicPEM)
 
