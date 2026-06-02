@@ -216,10 +216,12 @@ jobs:
             chmod 644 /opt/cixing/config/config.yaml
             cleanup_existing_compose_state
 
-            echo "pulling images"
-            ACR_LINE="$(grep '^CIXING_IMAGE=' /opt/cixing/deploy.env | cut -d= -f2-)"
+            echo "pulling images from ACR"
+            # Only pull cixing-api from ACR (base images already exist on host)
+            CIXING_IMAGE="$(grep '^CIXING_IMAGE=' /opt/cixing/deploy.env | cut -d= -f2-)"
             echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
-            compose pull
+            echo "pulling $CIXING_IMAGE"
+            $DOCKER pull "$CIXING_IMAGE"
 
             echo "starting dependency services"
             compose up -d postgres redis mailpit
