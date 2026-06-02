@@ -49,7 +49,7 @@ jobs:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         run: |
-          echo "$ACR_PASSWORD" | docker login --username "$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
+          echo "$ACR_PASSWORD" | docker login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
 
       - name: Build and push cixing-api
         run: |
@@ -213,7 +213,7 @@ jobs:
             cleanup_existing_compose_state
 
             # Login to ACR
-            echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
+            echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
 
             echo "pulling images from ACR"
             compose pull
