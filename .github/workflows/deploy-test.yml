@@ -14,8 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com/muxi/memento
-  CIXING_IMAGE_TAG: ${{ github.sha }}
+  ACR_REPO: registry.cn-hangzhou.aliyuncs.com/muxi/memento
 
 jobs:
   deploy:
@@ -51,13 +50,12 @@ jobs:
         run: |
           echo "$ACR_PASSWORD" | docker login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
 
-      - name: Build and push cixing-api
+      - name: Build and push cixing-api to ACR
         run: |
           set -eu
-          IMAGE_LOCAL="cixing-api:${CIXING_IMAGE_TAG}"
-          IMAGE_ACR="${ACR_REGISTRY}/cixing-api:${CIXING_IMAGE_TAG}"
-          docker build --platform linux/amd64 -f deploy/docker/Dockerfile.api -t "$IMAGE_LOCAL" .
-          docker tag "$IMAGE_LOCAL" "$IMAGE_ACR"
+          IMAGE_TAG="${GITHUB_SHA}"
+          IMAGE_ACR="${ACR_REPO}:${IMAGE_TAG}"
+          docker build --platform linux/amd64 -f deploy/docker/Dockerfile.api -t "cixing-api:${IMAGE_TAG}" -t "$IMAGE_ACR" .
           docker push "$IMAGE_ACR"
 
       - name: Mirror base images to ACR (skip if tag exists)
@@ -81,6 +79,8 @@ jobs:
           mirror "${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}"            mailpit
 
       - name: Prepare deployment files
+>>>>>>> b4efab0 (ci(deploy-test): push cixing-api image to Alibaba Cloud ACR)
+      - name: Prepare deployment files
         env:
           TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
@@ -90,8 +90,12 @@ jobs:
           cp deploy/compose/docker-compose.prod.yml /tmp/cixing-deploy/docker-compose.yml
           printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
-            echo "ACR_REGISTRY=${ACR_REGISTRY}"
-            echo "CIXING_IMAGE_TAG=${CIXING_IMAGE_TAG}"
+            echo "CIXING_IMAGE=${ACR_REPO}:${GITHUB_SHA}"
+            echo "POSTGRES_IMAGE=postgres:16-alpine"
+            echo "REDIS_IMAGE=redis:7-alpine"
+            echo "MAILPIT_IMAGE=axllent/mailpit:v1.29.7"
+            echo "NGINX_IMAGE=nginx:1.27-alpine"
+            echo "CERTBOT_IMAGE=certbot/certbot:v2.11.0"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
@@ -172,11 +176,11 @@ jobs:
             }
             cleanup_old_images() {
               echo "cleaning old cixing-api images"
-              current_tag="$(awk -F= '$1=="CIXING_IMAGE_TAG"{print $2}' /opt/cixing/deploy.env)"
+              current_tag="$(awk -F= '$1=="CIXING_IMAGE"{print $2}' /opt/cixing/deploy.env | sed 's|.*:||')"
               if [ -z "$current_tag" ]; then
                 return 0
               fi
-              for image_ref in $($DOCKER images --format '{{.Repository}}:{{.Tag}}' | grep 'cixing-api:' | grep -v "$current_tag" || true); do
+              for image_ref in $($DOCKER images --format '{{.Repository}}:{{.Tag}}' | grep 'cixing\|memento' | grep -v "$current_tag" || true); do
                 $DOCKER rmi "$image_ref" >/dev/null 2>&1 || true
               done
             }
@@ -212,10 +216,9 @@ jobs:
             chmod 644 /opt/cixing/config/config.yaml
             cleanup_existing_compose_state
 
-            # Login to ACR
+            echo "pulling images"
+            ACR_LINE="$(grep '^CIXING_IMAGE=' /opt/cixing/deploy.env | cut -d= -f2-)"
             echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
-
-            echo "pulling images from ACR"
             compose pull
 
             echo "starting dependency services"

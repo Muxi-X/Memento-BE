@@ -2,7 +2,7 @@ name: cixing-prod
 
 services:
   postgres:
-    image: ${ACR_REGISTRY:-postgres}/postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: cixing
@@ -17,7 +17,7 @@ services:
       retries: 20
 
   redis:
-    image: ${ACR_REGISTRY:-redis}/redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -29,13 +29,13 @@ services:
       retries: 20
 
   mailpit:
-    image: ${ACR_REGISTRY:-axllent/mailpit}/mailpit:v1.29.7
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
   migrate:
-    image: ${ACR_REGISTRY:-cixing-api}/cixing-api:${CIXING_IMAGE_TAG:-latest}
+    image: ${CIXING_IMAGE:?CIXING_IMAGE is required}
     restart: "no"
     entrypoint: ["/app/cixing-migrate"]
     command: ["up"]
@@ -48,7 +48,7 @@ services:
         condition: service_healthy
 
   api:
-    image: ${ACR_REGISTRY:-cixing-api}/cixing-api:${CIXING_IMAGE_TAG:-latest}
+    image: ${CIXING_IMAGE:?CIXING_IMAGE is required}
     restart: unless-stopped
     environment:
       CONFIG_FILE: /app/config/config.yaml
