@@ -102,21 +102,23 @@ jobs:
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
         run: |
           set -eu
+          SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
+
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
             "sudo mkdir -p /opt/cixing/config /opt/cixing/images && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/docker-compose.yml \
+          scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/deploy.env \
+          scp $SCP_OPTS /tmp/cixing-deploy/deploy.env \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/config.yaml \
+          scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/cixing-api.tar.gz \
+          scp $SCP_OPTS /tmp/cixing-deploy/images/cixing-api.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/cixing-api.tar.gz"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/postgres.tar.gz \
+          scp $SCP_OPTS /tmp/cixing-deploy/images/postgres.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/postgres.tar.gz"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/redis.tar.gz \
+          scp $SCP_OPTS /tmp/cixing-deploy/images/redis.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/redis.tar.gz"
-          scp -i ~/.ssh/id_test_server /tmp/cixing-deploy/images/mailpit.tar.gz \
+          scp $SCP_OPTS /tmp/cixing-deploy/images/mailpit.tar.gz \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/mailpit.tar.gz"
 
       - name: Deploy on ECS
