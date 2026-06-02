@@ -14,10 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  API_IMAGE_REPOSITORY: cixing-api
-  POSTGRES_IMAGE: postgres:16-alpine
-  REDIS_IMAGE: redis:7-alpine
-  MAILPIT_IMAGE: axllent/mailpit:v1.29.7
+  ACR_REGISTRY: registry.cn-hangzhou.aliyuncs.com/muxi/memento
+  CIXING_IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   deploy:
@@ -34,6 +32,8 @@ jobs:
           TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
           TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         run: |
           set -eu
           test -n "$TEST_SERVER_HOST"
@@ -41,29 +41,44 @@ jobs:
           test -n "$TEST_SERVER_SSH_KEY"
           test -n "$TEST_CONFIG_YAML"
           test -n "$TEST_POSTGRES_PASSWORD"
+          test -n "$ACR_USERNAME"
+          test -n "$ACR_PASSWORD"
 
-      - name: Build API image
+      - name: Login to ACR
+        env:
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          echo "$ACR_PASSWORD" | docker login --username "$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
+
+      - name: Build and push cixing-api
         run: |
           set -eu
-          IMAGE_LOCAL="${API_IMAGE_REPOSITORY}:${GITHUB_SHA}"
+          IMAGE_LOCAL="cixing-api:${CIXING_IMAGE_TAG}"
+          IMAGE_ACR="${ACR_REGISTRY}/cixing-api:${CIXING_IMAGE_TAG}"
           docker build --platform linux/amd64 -f deploy/docker/Dockerfile.api -t "$IMAGE_LOCAL" .
-          echo "CIXING_IMAGE=$IMAGE_LOCAL" >> "$GITHUB_ENV"
+          docker tag "$IMAGE_LOCAL" "$IMAGE_ACR"
+          docker push "$IMAGE_ACR"
 
-      - name: Pull dependency images
+      - name: Mirror base images to ACR (skip if tag exists)
         run: |
           set -eu
-          docker pull --platform linux/amd64 "$POSTGRES_IMAGE"
-          docker pull --platform linux/amd64 "$REDIS_IMAGE"
-          docker pull --platform linux/amd64 "$MAILPIT_IMAGE"
-
-      - name: Save deployment images
-        run: |
-          set -eu
-          mkdir -p /tmp/cixing-deploy/images
-          docker save "$CIXING_IMAGE" | gzip > /tmp/cixing-deploy/images/cixing-api.tar.gz
-          docker save "$POSTGRES_IMAGE" | gzip > /tmp/cixing-deploy/images/postgres.tar.gz
-          docker save "$REDIS_IMAGE" | gzip > /tmp/cixing-deploy/images/redis.tar.gz
-          docker save "$MAILPIT_IMAGE" | gzip > /tmp/cixing-deploy/images/mailpit.tar.gz
+          mirror() {
+            local source="$1"
+            local name="$2"
+            local acr_tag="${ACR_REGISTRY}/${name}"
+            if docker manifest inspect "$acr_tag" >/dev/null 2>&1; then
+              echo "skip $name: already in ACR"
+              return
+            fi
+            echo "mirroring $source -> $acr_tag"
+            docker pull --platform linux/amd64 "$source"
+            docker tag "$source" "$acr_tag"
+            docker push "$acr_tag"
+          }
+          mirror "${POSTGRES_IMAGE:-postgres:16-alpine}"                postgres
+          mirror "${REDIS_IMAGE:-redis:7-alpine}"                       redis
+          mirror "${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}"            mailpit
 
       - name: Prepare deployment files
         env:
@@ -75,10 +90,8 @@ jobs:
           cp deploy/compose/docker-compose.prod.yml /tmp/cixing-deploy/docker-compose.yml
           printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
-            echo "CIXING_IMAGE=${CIXING_IMAGE}"
-            echo "POSTGRES_IMAGE=${POSTGRES_IMAGE}"
-            echo "REDIS_IMAGE=${REDIS_IMAGE}"
-            echo "MAILPIT_IMAGE=${MAILPIT_IMAGE}"
+            echo "ACR_REGISTRY=${ACR_REGISTRY}"
+            echo "CIXING_IMAGE_TAG=${CIXING_IMAGE_TAG}"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
@@ -96,7 +109,7 @@ jobs:
           chmod 600 ~/.ssh/id_test_server
           ssh-keyscan -H "$TEST_SERVER_HOST" >> ~/.ssh/known_hosts
 
-      - name: Upload deployment assets
+      - name: Upload deployment files
         env:
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
@@ -105,26 +118,23 @@ jobs:
           SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
 
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config /opt/cixing/images && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+            "sudo mkdir -p /opt/cixing/config /opt/cixing/nginx/entrypoint && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+
           scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
           scp $SCP_OPTS /tmp/cixing-deploy/deploy.env \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
           scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
-          scp $SCP_OPTS /tmp/cixing-deploy/images/cixing-api.tar.gz \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/cixing-api.tar.gz"
-          scp $SCP_OPTS /tmp/cixing-deploy/images/postgres.tar.gz \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/postgres.tar.gz"
-          scp $SCP_OPTS /tmp/cixing-deploy/images/redis.tar.gz \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/redis.tar.gz"
-          scp $SCP_OPTS /tmp/cixing-deploy/images/mailpit.tar.gz \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/images/mailpit.tar.gz"
+          scp $SCP_OPTS /tmp/cixing-deploy/nginx/entrypoint/99-gen-conf.sh \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/nginx/entrypoint/99-gen-conf.sh"
 
       - name: Deploy on ECS
         env:
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         run: |
           set -eu
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" <<'REMOTE'
@@ -160,14 +170,13 @@ jobs:
               compose ps
               compose logs --tail=200 api
             }
-            cleanup_deployment_artifacts() {
-              echo "cleaning deployment artifacts"
-              rm -f /opt/cixing/images/*.tar.gz || true
-              current_image="$(awk -F= '$1=="CIXING_IMAGE"{print $2}' /opt/cixing/deploy.env)"
-              if [ -z "$current_image" ]; then
+            cleanup_old_images() {
+              echo "cleaning old cixing-api images"
+              current_tag="$(awk -F= '$1=="CIXING_IMAGE_TAG"{print $2}' /opt/cixing/deploy.env)"
+              if [ -z "$current_tag" ]; then
                 return 0
               fi
-              for image_ref in $($DOCKER images --format '{{.Repository}}:{{.Tag}}' | grep '^cixing-api:' | grep -F -x -v "$current_image" || true); do
+              for image_ref in $($DOCKER images --format '{{.Repository}}:{{.Tag}}' | grep 'cixing-api:' | grep -v "$current_tag" || true); do
                 $DOCKER rmi "$image_ref" >/dev/null 2>&1 || true
               done
             }
@@ -202,10 +211,13 @@ jobs:
             chmod 600 /opt/cixing/deploy.env
             chmod 644 /opt/cixing/config/config.yaml
             cleanup_existing_compose_state
-            gzip -dc /opt/cixing/images/cixing-api.tar.gz | $DOCKER load
-            gzip -dc /opt/cixing/images/postgres.tar.gz | $DOCKER load
-            gzip -dc /opt/cixing/images/redis.tar.gz | $DOCKER load
-            gzip -dc /opt/cixing/images/mailpit.tar.gz | $DOCKER load
+
+            # Login to ACR
+            echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin "$ACR_REGISTRY"
+
+            echo "pulling images from ACR"
+            compose pull
+
             echo "starting dependency services"
             compose up -d postgres redis mailpit
             echo "running database migrations"
@@ -266,7 +278,7 @@ jobs:
             final_api_state="$($DOCKER inspect --format '{{.State.Status}}' "$final_api_container_id")"
             final_api_health="$($DOCKER inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$final_api_container_id")"
             echo "final api status: container=$final_api_container_id state=$final_api_state health=$final_api_health"
-            cleanup_deployment_artifacts
+            cleanup_old_images
             compose ps
             compose logs --tail=80 api
           REMOTE
