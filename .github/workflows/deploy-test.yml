@@ -141,7 +141,7 @@ jobs:
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         run: |
           set -eu
-          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" <<'REMOTE'
+          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" "ACR_USERNAME='${ACR_USERNAME}' ACR_PASSWORD='${ACR_PASSWORD}' /bin/sh -s" <<'REMOTE'
             set -eu
             cd /opt/cixing
             DOCKER="docker"
