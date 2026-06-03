@@ -140,8 +140,13 @@ func (s *Storage) Delete(ctx context.Context, bucket, key string) error {
 
 func (s *Storage) uploadHost() string {
 	if s.client.Cfg.Zone != nil {
-		host := s.client.Cfg.Zone.GetIoHost(s.client.Cfg.UseHTTPS)
-		return host
+		if len(s.client.Cfg.Zone.SrcUpHosts) > 0 {
+			host := s.client.Cfg.Zone.SrcUpHosts[0]
+			if s.client.Cfg.UseHTTPS {
+				return "https://" + host
+			}
+			return "http://" + host
+		}
 	}
 
 	mac := &auth.Credentials{
@@ -152,8 +157,14 @@ func (s *Storage) uploadHost() string {
 	if err != nil || zone == nil {
 		return ""
 	}
-	host := zone.GetIoHost(s.client.Cfg.UseHTTPS)
-	return host
+	if len(zone.SrcUpHosts) > 0 {
+		host := zone.SrcUpHosts[0]
+		if s.client.Cfg.UseHTTPS {
+			return "https://" + host
+		}
+		return "http://" + host
+	}
+	return ""
 }
 
 func (s *Storage) download(ctx context.Context, key string) ([]byte, string, error) {
