@@ -56,8 +56,8 @@ func (s *Storage) PresignPut(ctx context.Context, bucket, key, contentType strin
 	return &common.PresignResult{
 		Method: "POST",
 		URL:    uploadHost,
-		Headers: map[string]string{
-			"Authorization": "UpToken " + upToken,
+		FormFields: map[string]string{
+			"token": upToken,
 		},
 		ExpiresAt: time.Now().Add(expires),
 	}, nil

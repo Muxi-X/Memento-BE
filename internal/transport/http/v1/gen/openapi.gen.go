@@ -699,11 +699,12 @@ type UpdateMeNotificationSettingsRequest struct {
 
 // UploadPresignedTarget defines model for UploadPresignedTarget.
 type UploadPresignedTarget struct {
-	ExpiresAt time.Time                   `json:"expires_at"`
-	Headers   *map[string]string          `json:"headers"`
-	Method    UploadPresignedTargetMethod `json:"method"`
-	ObjectKey string                      `json:"object_key"`
-	Url       string                      `json:"url"`
+	ExpiresAt  time.Time                   `json:"expires_at"`
+	FormFields *map[string]string          `json:"form_fields"`
+	Headers    *map[string]string          `json:"headers"`
+	Method     UploadPresignedTargetMethod `json:"method"`
+	ObjectKey  string                      `json:"object_key"`
+	Url        string                      `json:"url"`
 }
 
 // UploadPresignedTargetMethod defines model for UploadPresignedTarget.Method.

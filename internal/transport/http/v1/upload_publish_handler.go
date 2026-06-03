@@ -253,11 +253,12 @@ func (h *Handler) CommitUploadPublishSession(c *gin.Context, sessionID openapi_t
 
 func uploadPresignedTargetToDTO(in publishingapp.UploadPresignedTarget) v1gen.UploadPresignedTarget {
 	return v1gen.UploadPresignedTarget{
-		Method:    v1gen.UploadPresignedTargetMethod(in.Method),
-		Url:       in.URL,
-		Headers:   stringMapPtr(in.Headers),
-		ObjectKey: in.ObjectKey,
-		ExpiresAt: in.ExpiresAt,
+		Method:     v1gen.UploadPresignedTargetMethod(in.Method),
+		Url:        in.URL,
+		Headers:    stringMapPtr(in.Headers),
+		FormFields: stringMapPtr(in.FormFields),
+		ObjectKey:  in.ObjectKey,
+		ExpiresAt:  in.ExpiresAt,
 	}
 }
 
