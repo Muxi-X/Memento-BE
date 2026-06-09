@@ -126,24 +126,6 @@ jobs:
           scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
 
-      - name: Upload deployment files
-        env:
-          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
-          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
-        run: |
-          set -eu
-          SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
-
-          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
-
-          scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
-          scp $SCP_OPTS /tmp/cixing-deploy/deploy.env \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
-          scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
-
       - name: Deploy on ECS
         env:
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}

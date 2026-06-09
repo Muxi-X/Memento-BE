@@ -13,11 +13,11 @@ import (
 // Client 封装七牛云 Kodo 的访问凭证和配置。
 // 与阿里云不同，七牛云不需要 Internal/Public 双 Client，一个凭证 + Bucket 即可。
 type Client struct {
-	Mac     *auth.Credentials
-	Bucket  string
-	Cfg     *storage.Config
-	Domain  string // CDN 加速域名
-	Region  string // 配置中传入的 region 标识，用于 Zone 兜底
+	Mac    *auth.Credentials
+	Bucket string
+	Cfg    *storage.Config
+	Domain string // CDN 加速域名
+	Region string // 配置中传入的 region 标识，用于 Zone 兜底
 }
 
 // NewClient 根据配置创建七牛云 Client。
