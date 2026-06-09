@@ -6,10 +6,11 @@ import (
 )
 
 type PresignResult struct {
-	Method    string
-	URL       string
-	Headers   map[string]string // 客户端必须带上的 header（有的实现需要）
-	ExpiresAt time.Time
+	Method     string
+	URL        string
+	Headers    map[string]string // 客户端必须带上的 header（有的实现需要）
+	FormFields map[string]string // multipart/form-data 表单字段（七牛云：token）
+	ExpiresAt  time.Time
 }
 
 type ObjectStorage interface {

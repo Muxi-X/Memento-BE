@@ -66,11 +66,12 @@ type PresignAvatarImageInput struct {
 }
 
 type PresignedUploadTarget struct {
-	Method    string
-	URL       string
-	Headers   map[string]string
-	ObjectKey string
-	ExpiresAt time.Time
+	Method     string
+	URL        string
+	Headers    map[string]string
+	FormFields map[string]string
+	ObjectKey  string
+	ExpiresAt  time.Time
 }
 
 type PresignAvatarImageOutput struct {
@@ -208,11 +209,12 @@ func (s *AvatarUploadService) PresignImage(ctx context.Context, in PresignAvatar
 			Status:    session.Status,
 			ImageID:   asset.ID,
 			ImageUpload: PresignedUploadTarget{
-				Method:    presigned.Method,
-				URL:       presigned.URL,
-				Headers:   cloneStringMap(presigned.Headers),
-				ObjectKey: asset.OriginalObjectKey,
-				ExpiresAt: presigned.ExpiresAt,
+				Method:     presigned.Method,
+				URL:        presigned.URL,
+				Headers:    cloneStringMap(presigned.Headers),
+				FormFields: cloneStringMap(presigned.FormFields),
+				ObjectKey:  asset.OriginalObjectKey,
+				ExpiresAt:  presigned.ExpiresAt,
 			},
 		}
 		return nil

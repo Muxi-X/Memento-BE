@@ -92,10 +92,11 @@ func (h *Handler) CompleteAvatarUploadSession(c *gin.Context, sessionID openapi_
 
 func avatarPresignedTargetToDTO(in profileapp.PresignedUploadTarget) v1gen.UploadPresignedTarget {
 	return v1gen.UploadPresignedTarget{
-		Method:    v1gen.UploadPresignedTargetMethod(in.Method),
-		Url:       in.URL,
-		Headers:   stringMapPtr(in.Headers),
-		ObjectKey: in.ObjectKey,
-		ExpiresAt: in.ExpiresAt,
+		Method:     v1gen.UploadPresignedTargetMethod(in.Method),
+		Url:        in.URL,
+		Headers:    stringMapPtr(in.Headers),
+		FormFields: stringMapPtr(in.FormFields),
+		ObjectKey:  in.ObjectKey,
+		ExpiresAt:  in.ExpiresAt,
 	}
 }

@@ -19,31 +19,19 @@ redis:
   db: 0
 
 oss:
-  credential_mode: "static"
-  ecs_role_name: "CixingEcsOssUploadRole"
-  disable_imdsv1: true
-  assume_role_arn: ""
-  assume_role_session_name: ""
-  assume_role_external_id: ""
-  assume_role_sts_endpoint: ""
-  assume_role_session_duration: 1h
-  bucket: "change-me"
-  region: "cn-hongkong"
+  bucket: "memento"
+  region: ""                                      # 七牛云区域标识，可选。留空由 SDK 自动查询
   access_key_id: ""
   access_key_secret: ""
-  public_endpoint: ""
-  public_endpoint_is_cname: false
-  internal_endpoint: ""
-  internal_endpoint_is_cname: false
-  use_internal_endpoint: false
+  public_endpoint: "https://memento.muxixyz.com"  # 七牛云 CDN 加速域名
   put_presign_expire: 15m
   get_presign_expire: 10m
   upload_prefix: "uploads/"
   styles:
-    card_4x3: "card_4x3"
-    square_small: "square_small"
-    square_medium: "square_medium"
-    detail_large: "detail_large"
+    card_4x3:      "imageView2/1/w/900/h/1200|imageMogr2/auto-orient/quality/85/format/webp"
+    square_small:  "imageView2/1/w/320/h/320|imageMogr2/auto-orient/quality/82/format/webp"
+    square_medium: "imageView2/1/w/640/h/640|imageMogr2/auto-orient/quality/85/format/webp"
+    detail_large:  "imageMogr2/auto-orient/quality/88/format/webp"
 
 jwt:
   private_key_pem: |-

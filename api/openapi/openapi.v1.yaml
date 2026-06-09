@@ -528,11 +528,16 @@ components:
       properties:
         method:
           type: string
-          enum: [PUT]
+          enum: [POST, PUT]
         url:
           type: string
           format: uri
         headers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        form_fields:
           type: object
           additionalProperties:
             type: string
