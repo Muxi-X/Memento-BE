@@ -58,26 +58,6 @@ jobs:
           docker build --platform linux/amd64 -f deploy/docker/Dockerfile.api -t "cixing-api:${IMAGE_TAG}" -t "$IMAGE_ACR" .
           docker push "$IMAGE_ACR"
 
-      - name: Mirror base images to ACR (skip if tag exists)
-        run: |
-          set -eu
-          mirror() {
-            local source="$1"
-            local name="$2"
-            local acr_tag="${ACR_REGISTRY}/${name}"
-            if docker manifest inspect "$acr_tag" >/dev/null 2>&1; then
-              echo "skip $name: already in ACR"
-              return
-            fi
-            echo "mirroring $source -> $acr_tag"
-            docker pull --platform linux/amd64 "$source"
-            docker tag "$source" "$acr_tag"
-            docker push "$acr_tag"
-          }
-          mirror "${POSTGRES_IMAGE:-postgres:16-alpine}"                postgres
-          mirror "${REDIS_IMAGE:-redis:7-alpine}"                       redis
-          mirror "${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}"            mailpit
-
       - name: Prepare deployment files
         env:
           TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
