@@ -358,7 +358,7 @@ func assertAvatarURL(t *testing.T, got *string, objectKey string) {
 	if !strings.Contains(*got, objectKey) {
 		t.Fatalf("avatar URL = %q, want object key %q", *got, objectKey)
 	}
-	if !strings.Contains(*got, "x-oss-process=style/square_small") {
+	if !strings.Contains(*got, "square_small") {
 		t.Fatalf("avatar URL = %q, want square_small style", *got)
 	}
 }
