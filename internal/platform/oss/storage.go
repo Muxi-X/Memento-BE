@@ -185,7 +185,7 @@ func (s *Storage) download(ctx context.Context, key string) ([]byte, string, err
 	if err != nil {
 		return nil, "", fmt.Errorf("oss: download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, "", common.ErrNotFound
@@ -230,24 +230,4 @@ func isQiniuNotFound(err error) bool {
 		return true
 	}
 	return false
-}
-
-// ---- 保留的辅助函数 ----
-
-func cloneHeaders(src map[string]string) map[string]string {
-	if src == nil {
-		return nil
-	}
-	out := make(map[string]string, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
-}
-
-func deref(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
 }

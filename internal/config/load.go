@@ -5,7 +5,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -114,17 +113,6 @@ func setInt(dst *int, key string) error {
 			return fmt.Errorf("config: invalid int for %s: %w", key, err)
 		}
 		*dst = n
-	}
-	return nil
-}
-
-func setDuration(dst *time.Duration, key string) error {
-	if v := readEnv(key); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("config: invalid duration for %s: %w", key, err)
-		}
-		*dst = d
 	}
 	return nil
 }
