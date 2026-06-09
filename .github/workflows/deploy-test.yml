@@ -2,9 +2,9 @@ name: deploy-test
 
 on:
   workflow_dispatch:
-#  push:
-#    branches:
-#      - develop
+  push:
+    branches:
+      - develop
 
 permissions:
   contents: read
@@ -79,8 +79,6 @@ jobs:
           mirror "${MAILPIT_IMAGE:-axllent/mailpit:v1.29.7}"            mailpit
 
       - name: Prepare deployment files
->>>>>>> b4efab0 (ci(deploy-test): push cixing-api image to Alibaba Cloud ACR)
-      - name: Prepare deployment files
         env:
           TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
@@ -94,12 +92,9 @@ jobs:
             echo "POSTGRES_IMAGE=postgres:16-alpine"
             echo "REDIS_IMAGE=redis:7-alpine"
             echo "MAILPIT_IMAGE=axllent/mailpit:v1.29.7"
-            echo "NGINX_IMAGE=nginx:1.27-alpine"
-            echo "CERTBOT_IMAGE=certbot/certbot:v2.11.0"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
             echo "API_PORT=8080"
             echo "MAILPIT_UI_PORT=8025"
-            echo "DOMAIN=test.memento.muxixyz.com"
           } > /tmp/cixing-deploy/deploy.env
 
       - name: Configure SSH
@@ -122,7 +117,7 @@ jobs:
           SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
 
           ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config /opt/cixing/nginx/entrypoint && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+            "sudo mkdir -p /opt/cixing/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
 
           scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
@@ -130,8 +125,24 @@ jobs:
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
           scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
             "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
-          scp $SCP_OPTS /tmp/cixing-deploy/nginx/entrypoint/99-gen-conf.sh \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/nginx/entrypoint/99-gen-conf.sh"
+
+      - name: Upload deployment files
+        env:
+          TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
+          TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
+        run: |
+          set -eu
+          SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
+
+          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
+            "sudo mkdir -p /opt/cixing/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+
+          scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
+          scp $SCP_OPTS /tmp/cixing-deploy/deploy.env \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
+          scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
 
       - name: Deploy on ECS
         env:
