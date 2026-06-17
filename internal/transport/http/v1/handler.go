@@ -21,6 +21,7 @@ type Handler struct {
 	PublishingSessions *publishingapp.UploadSessionService
 	CustomKeywords     *customapp.Service
 	Profile            *profileapp.Service
+	AvatarUploads      *profileapp.AvatarUploadService
 	ReadModel          *readmodelapp.Service
 	SocialReactions    *socialapp.ReactionService
 	Notifications      *socialapp.NotificationService

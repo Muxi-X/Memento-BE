@@ -29,7 +29,7 @@ func TestMeSettingsFlow(t *testing.T) {
 
 	seedUser(t, ctx, pool, userID, "settings-user@example.com", "Old Nick")
 	seedUser(t, ctx, pool, authorID, "settings-author@example.com", "Author")
-	seedOfficialKeyword(t, ctx, pool, keywordID, "keyword", bizDate)
+	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "keyword", bizDate)
 
 	resolver := platformoss.NewURLResolver(platformoss.URLResolverConfig{
 		PublicBaseURL: "https://cdn.test.local",

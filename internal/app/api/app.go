@@ -95,7 +95,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	// 初始化 EmailSender
 	sender, err := platformemail.NewSender(cfg.Email)
@@ -131,7 +131,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	objectStorage, err := platformoss.NewStorage(ctx, cfg.OSS)
+	objectStorage, err := platformoss.NewStorage(cfg.OSS)
 	if err != nil {
 		return err
 	}
@@ -152,6 +152,14 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 	customKeywordRepo := customrepo.NewRepository(customdb.New(pool))
 	customKeywordSvc := customapp.NewService(customKeywordRepo, urlResolver)
 	profileSvc := profileapp.NewService(profilerepo.NewRepository(profiledb.New(pool)), urlResolver)
+	avatarUploadSvc, err := profileapp.NewAvatarUploadService(pool, objectStorage, urlResolver, profileapp.AvatarUploadServiceConfig{
+		Bucket:           cfg.OSS.Bucket,
+		UploadPrefix:     cfg.OSS.UploadPrefix,
+		PutPresignExpire: cfg.OSS.PutPresignExpire,
+	})
+	if err != nil {
+		return err
+	}
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, nil).WithCustomKeywords(customKeywordRepo)
 	publishSessionSvc, err := publishingapp.NewUploadSessionService(pool, publishingSvc, objectStorage, publishingapp.UploadSessionServiceConfig{
 		Bucket:           cfg.OSS.Bucket,
@@ -177,6 +185,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 			PublishingSessions: publishSessionSvc,
 			CustomKeywords:     customKeywordSvc,
 			Profile:            profileSvc,
+			AvatarUploads:      avatarUploadSvc,
 			ReadModel:          readmodelSvc,
 			SocialReactions:    reactionSvc,
 			Notifications:      notificationSvc,

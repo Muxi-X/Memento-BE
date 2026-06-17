@@ -177,7 +177,7 @@ SELECT
   n.target_upload_id,
   n.target_upload_cover_variant_key_snapshot AS target_cover_object_key,
   n.type,
-  n.reaction_type,
+  n.reaction_type::text AS reaction_type,
   n.read_at,
   n.created_at
 FROM notifications n
@@ -197,7 +197,7 @@ type ListNotificationsRow struct {
 	TargetUploadID       uuid.UUID          `json:"target_upload_id"`
 	TargetCoverObjectKey pgtype.Text        `json:"target_cover_object_key"`
 	Type                 string             `json:"type"`
-	ReactionType         interface{}        `json:"reaction_type"`
+	ReactionType         string             `json:"reaction_type"`
 	ReadAt               pgtype.Timestamptz `json:"read_at"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 }

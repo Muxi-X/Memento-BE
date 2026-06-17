@@ -108,7 +108,7 @@ components:
   schemas:
     ErrorCode:
       type: string
-      enum: [validation, unauthorized, forbidden, not_found, conflict, feature_not_ready, internal]
+      enum: [validation, unauthorized, forbidden, not_found, conflict, rate_limited, feature_not_ready, internal]
 
     ErrorResponse:
       type: object
@@ -528,11 +528,16 @@ components:
       properties:
         method:
           type: string
-          enum: [PUT]
+          enum: [POST, PUT]
         url:
           type: string
           format: uri
         headers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+        form_fields:
           type: object
           additionalProperties:
             type: string
@@ -976,6 +981,80 @@ components:
           type: string
           format: date-time
 
+    CustomKeywordUploadPreviewImage:
+      type: object
+      required: [id, image, display_order, has_audio, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: work_upload_images.id
+        image:
+          $ref: "#/components/schemas/ImageRefSquareMedium"
+        display_order:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 80
+          nullable: true
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+        has_audio:
+          type: boolean
+        audio_duration_ms:
+          type: integer
+          minimum: 1
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    CustomKeywordUploadCard:
+      type: object
+      required: [id, custom_keyword_id, preview_images, image_count, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: work_uploads.id. Use this as upload_id for the custom upload detail endpoint.
+        custom_keyword_id:
+          type: string
+          format: uuid
+        preview_images:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordUploadPreviewImage"
+          description: All images in this upload, rendered with square_medium variants for list preview.
+        image_count:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+
+    CustomKeywordUploadDetail:
+      allOf:
+        - $ref: "#/components/schemas/CustomKeywordUploadCard"
+        - type: object
+          required: [images]
+          properties:
+            images:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkImage"
+
+    ListCustomKeywordUploadsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomKeywordUploadCard"
+
     ReviewMyWorkUploadCard:
       type: object
       required: [id, biz_date, keyword_id, cover_image, image_count, created_at]
@@ -1141,6 +1220,10 @@ components:
         reaction_enabled:
           type: boolean
 
+    AvatarUploadSessionStatus:
+      type: string
+      enum: [created, presigned, uploaded, committing, completed, failed, canceled, expired]
+
     MeProfile:
       type: object
       required: [nickname]
@@ -1183,6 +1266,75 @@ components:
       properties:
         reaction_enabled:
           type: boolean
+
+    CreateAvatarUploadSessionResponse:
+      type: object
+      required: [session_id, status, expires_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        expires_at:
+          type: string
+          format: date-time
+
+    PresignAvatarImageRequest:
+      type: object
+      required: [image_content_type, image_content_length]
+      properties:
+        image_content_type:
+          type: string
+          example: image/jpeg
+        image_content_length:
+          type: integer
+          format: int64
+          minimum: 1
+        image_sha256:
+          type: string
+          nullable: true
+
+    PresignAvatarImageResponse:
+      type: object
+      required: [session_id, status, image_id, image_upload]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        image_id:
+          type: string
+          format: uuid
+        image_upload:
+          $ref: "#/components/schemas/UploadPresignedTarget"
+
+    CompleteAvatarUploadSessionRequest:
+      type: object
+      required: [image_etag, image_width, image_height]
+      properties:
+        image_etag:
+          type: string
+          minLength: 1
+        image_width:
+          type: integer
+          minimum: 1
+        image_height:
+          type: integer
+          minimum: 1
+
+    CompleteAvatarUploadSessionResponse:
+      type: object
+      required: [session_id, status, profile]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AvatarUploadSessionStatus"
+        profile:
+          $ref: "#/components/schemas/MeProfile"
 
     NotificationCoverImage:
       type: object
@@ -1933,10 +2085,51 @@ paths:
           $ref: "#/components/responses/InternalError"
 
 
+  /v1/custom-keywords/{keyword_id}/uploads:
+    get:
+      tags: [CustomKeywords]
+      operationId: listCustomKeywordUploads
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: keyword_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          description: Number of upload groups to return, not image count.
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListCustomKeywordUploadsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/custom-keywords/{keyword_id}/images:
     get:
       tags: [CustomKeywords]
       operationId: listCustomKeywordImages
+      deprecated: true
       security:
         - bearerAuth: []
       parameters:
@@ -1972,10 +2165,42 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/custom/uploads/{upload_id}:
+    get:
+      tags: [CustomKeywords]
+      operationId: getCustomUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomKeywordUploadDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/custom/images/{image_id}:
     get:
       tags: [CustomKeywords]
       operationId: getCustomImage
+      deprecated: true
       security:
         - bearerAuth: []
       parameters:
@@ -2323,6 +2548,114 @@ paths:
                 $ref: "#/components/schemas/MeHomeResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions:
+    post:
+      tags: [Me]
+      operationId: createAvatarUploadSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: Created
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAvatarUploadSessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions/{session_id}/image/presign:
+    post:
+      tags: [Me]
+      operationId: presignAvatarUploadSessionImage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresignAvatarImageRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignAvatarImageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/avatar-upload-sessions/{session_id}/complete:
+    post:
+      tags: [Me]
+      operationId: completeAvatarUploadSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteAvatarUploadSessionRequest"
+      responses:
+        "200":
+          description: OK
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteAvatarUploadSessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/InternalError"
 

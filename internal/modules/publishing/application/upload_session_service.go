@@ -62,11 +62,12 @@ type CreateUploadSessionOutput struct {
 }
 
 type UploadPresignedTarget struct {
-	Method    string
-	URL       string
-	Headers   map[string]string
-	ObjectKey string
-	ExpiresAt time.Time
+	Method     string
+	URL        string
+	Headers    map[string]string
+	FormFields map[string]string
+	ObjectKey  string
+	ExpiresAt  time.Time
 }
 
 type PresignBatchItemInput struct {
@@ -299,11 +300,12 @@ func (s *UploadSessionService) PresignBatch(ctx context.Context, in PresignBatch
 					return err
 				}
 				audioUpload = &UploadPresignedTarget{
-					Method:    audioPresign.Method,
-					URL:       audioPresign.URL,
-					Headers:   cloneStringMap(audioPresign.Headers),
-					ObjectKey: audioObjectKey,
-					ExpiresAt: audioPresign.ExpiresAt,
+					Method:     audioPresign.Method,
+					URL:        audioPresign.URL,
+					Headers:    cloneStringMap(audioPresign.Headers),
+					FormFields: cloneStringMap(audioPresign.FormFields),
+					ObjectKey:  audioObjectKey,
+					ExpiresAt:  audioPresign.ExpiresAt,
 				}
 			}
 
@@ -324,11 +326,12 @@ func (s *UploadSessionService) PresignBatch(ctx context.Context, in PresignBatch
 				ClientImageID: item.ClientImageID,
 				ImageID:       imageAsset.ID,
 				ImageUpload: UploadPresignedTarget{
-					Method:    imagePresign.Method,
-					URL:       imagePresign.URL,
-					Headers:   cloneStringMap(imagePresign.Headers),
-					ObjectKey: imageObjectKey,
-					ExpiresAt: imagePresign.ExpiresAt,
+					Method:     imagePresign.Method,
+					URL:        imagePresign.URL,
+					Headers:    cloneStringMap(imagePresign.Headers),
+					FormFields: cloneStringMap(imagePresign.FormFields),
+					ObjectKey:  imageObjectKey,
+					ExpiresAt:  imagePresign.ExpiresAt,
 				},
 				AudioUpload: audioUpload,
 			})
@@ -377,11 +380,12 @@ func (s *UploadSessionService) presignExistingPendingItem(ctx context.Context, m
 			return PresignBatchItemOutput{}, err
 		}
 		audioUpload = &UploadPresignedTarget{
-			Method:    audioPresign.Method,
-			URL:       audioPresign.URL,
-			Headers:   cloneStringMap(audioPresign.Headers),
-			ObjectKey: audioAsset.OriginalObjectKey,
-			ExpiresAt: audioPresign.ExpiresAt,
+			Method:     audioPresign.Method,
+			URL:        audioPresign.URL,
+			Headers:    cloneStringMap(audioPresign.Headers),
+			FormFields: cloneStringMap(audioPresign.FormFields),
+			ObjectKey:  audioAsset.OriginalObjectKey,
+			ExpiresAt:  audioPresign.ExpiresAt,
 		}
 	} else if item.AudioContentType != nil || item.AudioContentLength != nil {
 		return PresignBatchItemOutput{}, common.ErrConflict
@@ -392,11 +396,12 @@ func (s *UploadSessionService) presignExistingPendingItem(ctx context.Context, m
 		ClientImageID: sessionItem.ClientImageID,
 		ImageID:       imageAsset.ID,
 		ImageUpload: UploadPresignedTarget{
-			Method:    imagePresign.Method,
-			URL:       imagePresign.URL,
-			Headers:   cloneStringMap(imagePresign.Headers),
-			ObjectKey: imageAsset.OriginalObjectKey,
-			ExpiresAt: imagePresign.ExpiresAt,
+			Method:     imagePresign.Method,
+			URL:        imagePresign.URL,
+			Headers:    cloneStringMap(imagePresign.Headers),
+			FormFields: cloneStringMap(imagePresign.FormFields),
+			ObjectKey:  imageAsset.OriginalObjectKey,
+			ExpiresAt:  imagePresign.ExpiresAt,
 		},
 		AudioUpload: audioUpload,
 	}, nil

@@ -43,22 +43,15 @@ type RedisConfig struct {
 }
 
 type OSSConfig struct {
-	CredentialMode          string         `yaml:"credential_mode"`
-	ECSRoleName             string         `yaml:"ecs_role_name"`
-	DisableIMDSv1           bool           `yaml:"disable_imdsv1"`
-	Bucket                  string         `yaml:"bucket"`
-	Region                  string         `yaml:"region"`
-	AccessKeyID             string         `yaml:"access_key_id"`
-	AccessKeySecret         string         `yaml:"access_key_secret"`
-	PublicEndpoint          string         `yaml:"public_endpoint"`
-	PublicEndpointIsCName   bool           `yaml:"public_endpoint_is_cname"`
-	InternalEndpoint        string         `yaml:"internal_endpoint"`
-	InternalEndpointIsCName bool           `yaml:"internal_endpoint_is_cname"`
-	UseInternalEndpoint     bool           `yaml:"use_internal_endpoint"`
-	PutPresignExpire        time.Duration  `yaml:"put_presign_expire"`
-	GetPresignExpire        time.Duration  `yaml:"get_presign_expire"`
-	UploadPrefix            string         `yaml:"upload_prefix"`
-	Styles                  OSSStyleConfig `yaml:"styles"`
+	Bucket           string         `yaml:"bucket"`
+	Region           string         `yaml:"region"` // 可选，七牛云区域标识（如 cn-east-1），为空时 SDK 自动查询
+	AccessKeyID      string         `yaml:"access_key_id"`
+	AccessKeySecret  string         `yaml:"access_key_secret"`
+	PublicEndpoint   string         `yaml:"public_endpoint"` // 七牛云 CDN 加速域名
+	PutPresignExpire time.Duration  `yaml:"put_presign_expire"`
+	GetPresignExpire time.Duration  `yaml:"get_presign_expire"`
+	UploadPrefix     string         `yaml:"upload_prefix"`
+	Styles           OSSStyleConfig `yaml:"styles"`
 }
 
 type OSSStyleConfig struct {
@@ -107,16 +100,14 @@ func Default() Config {
 			DB:   0,
 		},
 		OSS: OSSConfig{
-			CredentialMode:   "static",
-			ECSRoleName:      "CixingEcsOssUploadRole",
 			PutPresignExpire: 15 * time.Minute,
 			GetPresignExpire: 10 * time.Minute,
 			UploadPrefix:     "uploads/",
 			Styles: OSSStyleConfig{
-				Card4x3:     "card_4x3",
-				SquareSmall: "square_small",
-				SquareMed:   "square_medium",
-				DetailLarge: "detail_large",
+				Card4x3:     "imageView2/1/w/900/h/1200|imageMogr2/auto-orient/quality/85/format/webp",
+				SquareSmall: "imageView2/1/w/320/h/320|imageMogr2/auto-orient/quality/82/format/webp",
+				SquareMed:   "imageView2/1/w/640/h/640|imageMogr2/auto-orient/quality/85/format/webp",
+				DetailLarge: "imageMogr2/auto-orient/quality/88/format/webp",
 			},
 		},
 		JWT:  JWTConfig{},
@@ -137,12 +128,9 @@ func (c *Config) Normalize() {
 
 	c.OSS.Bucket = strings.TrimSpace(c.OSS.Bucket)
 	c.OSS.Region = strings.TrimSpace(c.OSS.Region)
-	c.OSS.CredentialMode = strings.ToLower(strings.TrimSpace(c.OSS.CredentialMode))
-	c.OSS.ECSRoleName = strings.TrimSpace(c.OSS.ECSRoleName)
 	c.OSS.AccessKeyID = strings.TrimSpace(c.OSS.AccessKeyID)
 	c.OSS.AccessKeySecret = strings.TrimSpace(c.OSS.AccessKeySecret)
 	c.OSS.PublicEndpoint = strings.TrimSpace(c.OSS.PublicEndpoint)
-	c.OSS.InternalEndpoint = strings.TrimSpace(c.OSS.InternalEndpoint)
 	c.OSS.UploadPrefix = strings.TrimSpace(c.OSS.UploadPrefix)
 	c.OSS.Styles.Card4x3 = strings.TrimSpace(c.OSS.Styles.Card4x3)
 	c.OSS.Styles.SquareSmall = strings.TrimSpace(c.OSS.Styles.SquareSmall)
@@ -168,8 +156,8 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.OSS.Bucket) == "" {
 		return fmt.Errorf("config: oss.bucket is required")
 	}
-	if strings.TrimSpace(c.OSS.Region) == "" {
-		return fmt.Errorf("config: oss.region is required")
+	if strings.TrimSpace(c.OSS.AccessKeyID) == "" || strings.TrimSpace(c.OSS.AccessKeySecret) == "" {
+		return fmt.Errorf("config: oss access_key_id and access_key_secret are required")
 	}
 	if strings.TrimSpace(c.JWT.PrivateKeyPEM) == "" || strings.TrimSpace(c.JWT.PublicKeyPEM) == "" {
 		return fmt.Errorf("config: jwt private/public key pem is required")

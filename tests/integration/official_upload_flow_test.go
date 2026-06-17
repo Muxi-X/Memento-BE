@@ -36,7 +36,7 @@ func TestOfficialUploadPublishFlow(t *testing.T) {
 
 	seedUser(t, ctx, pool, userID, "it-user@example.com", "Integration User")
 	seedUser(t, ctx, pool, viewerUserID, "review-viewer@example.com", "Review Viewer")
-	seedOfficialKeyword(t, ctx, pool, keywordID, "晴朗", bizDate)
+	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
 	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
@@ -207,7 +207,7 @@ func TestOfficialUploadPublishFlow_CompleteBatchRejectsMismatchedETag(t *testing
 	bizDate := dateOnly(now)
 
 	seedUser(t, ctx, pool, userID, "etag-user@example.com", "ETag User")
-	seedOfficialKeyword(t, ctx, pool, keywordID, "晴朗", bizDate)
+	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
 	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
@@ -284,7 +284,7 @@ func TestOfficialUploadPublishFlow_PresignBatchIsIdempotentForPendingItem(t *tes
 	bizDate := dateOnly(now)
 
 	seedUser(t, ctx, pool, userID, "idempotent-user@example.com", "Idempotent User")
-	seedOfficialKeyword(t, ctx, pool, keywordID, "晴朗", bizDate)
+	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
 	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })

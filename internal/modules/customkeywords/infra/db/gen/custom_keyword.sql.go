@@ -250,6 +250,105 @@ func (q *Queries) GetCustomKeywordImageDetail(ctx context.Context, arg GetCustom
 	return i, err
 }
 
+const getCustomKeywordUploadImages = `-- name: GetCustomKeywordUploadImages :many
+SELECT
+  wu.id AS upload_id,
+  wu.custom_keyword_id,
+  wu.image_count,
+  wu.published_at AS upload_created_at,
+  wui.id AS image_id,
+  wui.image_asset_id,
+  ma.original_object_key,
+  ma.width,
+  ma.height,
+  wui.display_order,
+  wuic.title,
+  wuic.note,
+  (wuic.audio_asset_id IS NOT NULL) AS has_audio,
+  wuic.audio_duration_ms,
+  audio.original_object_key AS audio_object_key,
+  wui.created_at AS image_created_at
+FROM work_uploads wu
+JOIN work_upload_images wui
+  ON wui.upload_id = wu.id
+ AND wui.deleted_at IS NULL
+JOIN media_assets ma
+  ON ma.id = wui.image_asset_id
+ AND ma.deleted_at IS NULL
+LEFT JOIN work_upload_image_contents wuic
+  ON wuic.work_upload_image_id = wui.id
+LEFT JOIN media_assets audio
+  ON audio.id = wuic.audio_asset_id
+ AND audio.deleted_at IS NULL
+WHERE wu.id = $1::uuid
+  AND wu.author_user_id = $2::uuid
+  AND wu.context_type = 'custom_keyword'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+ORDER BY wui.display_order ASC, wui.id ASC
+`
+
+type GetCustomKeywordUploadImagesParams struct {
+	UploadID    uuid.UUID `json:"upload_id"`
+	OwnerUserID uuid.UUID `json:"owner_user_id"`
+}
+
+type GetCustomKeywordUploadImagesRow struct {
+	UploadID          uuid.UUID          `json:"upload_id"`
+	CustomKeywordID   pgtype.UUID        `json:"custom_keyword_id"`
+	ImageCount        int32              `json:"image_count"`
+	UploadCreatedAt   pgtype.Timestamptz `json:"upload_created_at"`
+	ImageID           uuid.UUID          `json:"image_id"`
+	ImageAssetID      uuid.UUID          `json:"image_asset_id"`
+	OriginalObjectKey string             `json:"original_object_key"`
+	Width             pgtype.Int4        `json:"width"`
+	Height            pgtype.Int4        `json:"height"`
+	DisplayOrder      int32              `json:"display_order"`
+	Title             pgtype.Text        `json:"title"`
+	Note              pgtype.Text        `json:"note"`
+	HasAudio          interface{}        `json:"has_audio"`
+	AudioDurationMs   pgtype.Int4        `json:"audio_duration_ms"`
+	AudioObjectKey    pgtype.Text        `json:"audio_object_key"`
+	ImageCreatedAt    pgtype.Timestamptz `json:"image_created_at"`
+}
+
+func (q *Queries) GetCustomKeywordUploadImages(ctx context.Context, arg GetCustomKeywordUploadImagesParams) ([]GetCustomKeywordUploadImagesRow, error) {
+	rows, err := q.db.Query(ctx, getCustomKeywordUploadImages, arg.UploadID, arg.OwnerUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetCustomKeywordUploadImagesRow{}
+	for rows.Next() {
+		var i GetCustomKeywordUploadImagesRow
+		if err := rows.Scan(
+			&i.UploadID,
+			&i.CustomKeywordID,
+			&i.ImageCount,
+			&i.UploadCreatedAt,
+			&i.ImageID,
+			&i.ImageAssetID,
+			&i.OriginalObjectKey,
+			&i.Width,
+			&i.Height,
+			&i.DisplayOrder,
+			&i.Title,
+			&i.Note,
+			&i.HasAudio,
+			&i.AudioDurationMs,
+			&i.AudioObjectKey,
+			&i.ImageCreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getLatestCustomKeywordCoverAsset = `-- name: GetLatestCustomKeywordCoverAsset :one
 SELECT
   ma.id,
@@ -427,6 +526,116 @@ func (q *Queries) ListCustomKeywordSummariesForUser(ctx context.Context, ownerUs
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.TotalImageCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCustomKeywordUploadImages = `-- name: ListCustomKeywordUploadImages :many
+WITH page_uploads AS (
+  SELECT
+    wu.id,
+    wu.custom_keyword_id,
+    wu.image_count,
+    wu.published_at
+  FROM work_uploads wu
+  WHERE wu.author_user_id = $1::uuid
+    AND wu.custom_keyword_id = $2::uuid
+    AND wu.context_type = 'custom_keyword'
+    AND wu.visibility_status = 'visible'
+    AND wu.deleted_at IS NULL
+  ORDER BY wu.published_at DESC, wu.id DESC
+  LIMIT $3::int
+)
+SELECT
+  pu.id AS upload_id,
+  pu.custom_keyword_id,
+  pu.image_count,
+  pu.published_at AS upload_created_at,
+  wui.id AS image_id,
+  wui.image_asset_id,
+  ma.original_object_key,
+  ma.width,
+  ma.height,
+  wui.display_order,
+  wuic.title,
+  wuic.note,
+  (wuic.audio_asset_id IS NOT NULL) AS has_audio,
+  wuic.audio_duration_ms,
+  audio.original_object_key AS audio_object_key,
+  wui.created_at AS image_created_at
+FROM page_uploads pu
+JOIN work_upload_images wui
+  ON wui.upload_id = pu.id
+ AND wui.deleted_at IS NULL
+JOIN media_assets ma
+  ON ma.id = wui.image_asset_id
+ AND ma.deleted_at IS NULL
+LEFT JOIN work_upload_image_contents wuic
+  ON wuic.work_upload_image_id = wui.id
+LEFT JOIN media_assets audio
+  ON audio.id = wuic.audio_asset_id
+ AND audio.deleted_at IS NULL
+ORDER BY pu.published_at DESC, pu.id DESC, wui.display_order ASC, wui.id ASC
+`
+
+type ListCustomKeywordUploadImagesParams struct {
+	OwnerUserID uuid.UUID `json:"owner_user_id"`
+	KeywordID   uuid.UUID `json:"keyword_id"`
+	RowLimit    int32     `json:"row_limit"`
+}
+
+type ListCustomKeywordUploadImagesRow struct {
+	UploadID          uuid.UUID          `json:"upload_id"`
+	CustomKeywordID   pgtype.UUID        `json:"custom_keyword_id"`
+	ImageCount        int32              `json:"image_count"`
+	UploadCreatedAt   pgtype.Timestamptz `json:"upload_created_at"`
+	ImageID           uuid.UUID          `json:"image_id"`
+	ImageAssetID      uuid.UUID          `json:"image_asset_id"`
+	OriginalObjectKey string             `json:"original_object_key"`
+	Width             pgtype.Int4        `json:"width"`
+	Height            pgtype.Int4        `json:"height"`
+	DisplayOrder      int32              `json:"display_order"`
+	Title             pgtype.Text        `json:"title"`
+	Note              pgtype.Text        `json:"note"`
+	HasAudio          interface{}        `json:"has_audio"`
+	AudioDurationMs   pgtype.Int4        `json:"audio_duration_ms"`
+	AudioObjectKey    pgtype.Text        `json:"audio_object_key"`
+	ImageCreatedAt    pgtype.Timestamptz `json:"image_created_at"`
+}
+
+func (q *Queries) ListCustomKeywordUploadImages(ctx context.Context, arg ListCustomKeywordUploadImagesParams) ([]ListCustomKeywordUploadImagesRow, error) {
+	rows, err := q.db.Query(ctx, listCustomKeywordUploadImages, arg.OwnerUserID, arg.KeywordID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCustomKeywordUploadImagesRow{}
+	for rows.Next() {
+		var i ListCustomKeywordUploadImagesRow
+		if err := rows.Scan(
+			&i.UploadID,
+			&i.CustomKeywordID,
+			&i.ImageCount,
+			&i.UploadCreatedAt,
+			&i.ImageID,
+			&i.ImageAssetID,
+			&i.OriginalObjectKey,
+			&i.Width,
+			&i.Height,
+			&i.DisplayOrder,
+			&i.Title,
+			&i.Note,
+			&i.HasAudio,
+			&i.AudioDurationMs,
+			&i.AudioObjectKey,
+			&i.ImageCreatedAt,
 		); err != nil {
 			return nil, err
 		}

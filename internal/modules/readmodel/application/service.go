@@ -106,7 +106,7 @@ func (s *Service) GetMeHome(ctx context.Context, userID uuid.UUID) (*MeHomeOutpu
 	}
 
 	customImageCount := row.CustomImageCount
-	outKeywords := make([]MeHomeCustomKeywordOutput, 0)
+	var outKeywords []MeHomeCustomKeywordOutput
 	if s.customKeywords != nil {
 		customHome, err := s.customKeywords.ListForMeHome(ctx, userID)
 		if err != nil {

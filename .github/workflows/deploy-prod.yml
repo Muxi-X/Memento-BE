@@ -1,20 +1,13 @@
-name: deploy-test
+name: deploy-prod
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - develop
-    paths-ignore:
-      - '.github/workflows/deploy-prod.yml'
-      - 'docs/**'
-      - '*.md'
 
 permissions:
   contents: read
 
 concurrency:
-  group: deploy-test
+  group: deploy-prod
   cancel-in-progress: false
 
 env:
@@ -33,7 +26,7 @@ jobs:
           TEST_SERVER_HOST: ${{ secrets.TEST_SERVER_HOST }}
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
           TEST_SERVER_SSH_KEY: ${{ secrets.TEST_SERVER_SSH_KEY }}
-          TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
+          PROD_CONFIG_YAML: ${{ secrets.PROD_CONFIG_YAML }}
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
@@ -42,7 +35,7 @@ jobs:
           test -n "$TEST_SERVER_HOST"
           test -n "$TEST_SERVER_USERNAME"
           test -n "$TEST_SERVER_SSH_KEY"
-          test -n "$TEST_CONFIG_YAML"
+          test -n "$PROD_CONFIG_YAML"
           test -n "$TEST_POSTGRES_PASSWORD"
           test -n "$ACR_USERNAME"
           test -n "$ACR_PASSWORD"
@@ -64,23 +57,23 @@ jobs:
 
       - name: Prepare deployment files
         env:
-          TEST_CONFIG_YAML: ${{ secrets.TEST_CONFIG_YAML }}
+          PROD_CONFIG_YAML: ${{ secrets.PROD_CONFIG_YAML }}
           TEST_POSTGRES_PASSWORD: ${{ secrets.TEST_POSTGRES_PASSWORD }}
         run: |
           set -eu
           mkdir -p /tmp/cixing-deploy
           cp deploy/compose/docker-compose.prod.yml /tmp/cixing-deploy/docker-compose.yml
-          printf '%s' "$TEST_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
+          printf '%s' "$PROD_CONFIG_YAML" > /tmp/cixing-deploy/config.yaml
           {
             echo "CIXING_IMAGE=${ACR_REPO}:${GITHUB_SHA}"
             echo "POSTGRES_IMAGE=postgres:16-alpine"
             echo "REDIS_IMAGE=redis:7-alpine"
             echo "MAILPIT_IMAGE=axllent/mailpit:v1.29.7"
             echo "POSTGRES_PASSWORD=${TEST_POSTGRES_PASSWORD}"
-            echo "API_PORT=8080"
-            echo "MAILPIT_UI_PORT=8025"
-            echo "CONFIG_HOST_PATH=/opt/cixing/config/config.yaml"
-            echo "COMPOSE_PROJECT_NAME=cixing-prod"
+            echo "API_PORT=8081"
+            echo "MAILPIT_UI_PORT=8026"
+            echo "CONFIG_HOST_PATH=/opt/cixing-prod/config/config.yaml"
+            echo "COMPOSE_PROJECT_NAME=cixing-prod-prod"
           } > /tmp/cixing-deploy/deploy.env
 
       - name: Configure SSH
@@ -90,8 +83,8 @@ jobs:
         run: |
           set -eu
           mkdir -p ~/.ssh
-          printf '%s\n' "$TEST_SERVER_SSH_KEY" > ~/.ssh/id_test_server
-          chmod 600 ~/.ssh/id_test_server
+          printf '%s\n' "$TEST_SERVER_SSH_KEY" > ~/.ssh/id_prod_server
+          chmod 600 ~/.ssh/id_prod_server
           ssh-keyscan -H "$TEST_SERVER_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload deployment files
@@ -100,17 +93,17 @@ jobs:
           TEST_SERVER_USERNAME: ${{ secrets.TEST_SERVER_USERNAME }}
         run: |
           set -eu
-          SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_test_server"
+          SCP_OPTS="-o ConnectTimeout=10 -o ServerAliveInterval=15 -i ~/.ssh/id_prod_server"
 
-          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
-            "sudo mkdir -p /opt/cixing/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing"
+          ssh -i ~/.ssh/id_prod_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" \
+            "sudo mkdir -p /opt/cixing-prod/config && sudo chown -R $TEST_SERVER_USERNAME /opt/cixing-prod"
 
           scp $SCP_OPTS /tmp/cixing-deploy/docker-compose.yml \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/docker-compose.yml"
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing-prod/docker-compose.yml"
           scp $SCP_OPTS /tmp/cixing-deploy/deploy.env \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/deploy.env"
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing-prod/deploy.env"
           scp $SCP_OPTS /tmp/cixing-deploy/config.yaml \
-            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing/config/config.yaml"
+            "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST:/opt/cixing-prod/config/config.yaml"
 
       - name: Deploy on ECS
         env:
@@ -120,20 +113,20 @@ jobs:
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
         run: |
           set -eu
-          ssh -i ~/.ssh/id_test_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" "ACR_USERNAME='${ACR_USERNAME}' ACR_PASSWORD='${ACR_PASSWORD}' /bin/sh -s" <<'REMOTE'
+          ssh -i ~/.ssh/id_prod_server "$TEST_SERVER_USERNAME@$TEST_SERVER_HOST" "ACR_USERNAME='${ACR_USERNAME}' ACR_PASSWORD='${ACR_PASSWORD}' /bin/sh -s" <<'REMOTE'
             set -eu
-            cd /opt/cixing
+            cd /opt/cixing-prod
             DOCKER="docker"
             if ! docker info >/dev/null 2>&1; then
               DOCKER="sudo docker"
             fi
             compose() {
-              $DOCKER compose --env-file /opt/cixing/deploy.env -f /opt/cixing/docker-compose.yml "$@"
+              $DOCKER compose --env-file /opt/cixing-prod/deploy.env -f /opt/cixing-prod/docker-compose.yml "$@"
             }
             cleanup_existing_compose_state() {
               echo "cleaning existing compose state"
               compose down --remove-orphans 2>/dev/null || true
-              compose_project="$(grep '^COMPOSE_PROJECT_NAME=' /opt/cixing/deploy.env | cut -d= -f2-)"
+              compose_project="$(grep '^COMPOSE_PROJECT_NAME=' /opt/cixing-prod/deploy.env | cut -d= -f2-)"
               legacy_container_ids="$($DOCKER ps -aq --filter label=com.docker.compose.project=${compose_project})"
               if [ -n "$legacy_container_ids" ]; then
                 $DOCKER rm -f $legacy_container_ids >/dev/null 2>&1 || true
@@ -143,9 +136,9 @@ jobs:
                 $DOCKER network rm $legacy_network_ids >/dev/null 2>&1 || true
               fi
               if command -v ss >/dev/null 2>&1; then
-                if ss -lntp 2>/dev/null | grep -q ':8080 '; then
-                  echo "port 8080 is still occupied before deployment" >&2
-                  ss -lntp 2>/dev/null | grep ':8080 ' >&2 || true
+                if ss -lntp 2>/dev/null | grep -q ':8081 '; then
+                  echo "port 8081 is still occupied before deployment" >&2
+                  ss -lntp 2>/dev/null | grep ':8081 ' >&2 || true
                   exit 1
                 fi
               fi
@@ -156,7 +149,7 @@ jobs:
             }
             cleanup_old_images() {
               echo "cleaning old cixing-api images"
-              current_tag="$(awk -F= '$1=="CIXING_IMAGE"{print $2}' /opt/cixing/deploy.env | sed 's|.*:||')"
+              current_tag="$(awk -F= '$1=="CIXING_IMAGE"{print $2}' /opt/cixing-prod/deploy.env | sed 's|.*:||')"
               if [ -z "$current_tag" ]; then
                 return 0
               fi
@@ -192,13 +185,13 @@ jobs:
               fi
               return 0
             }
-            chmod 600 /opt/cixing/deploy.env
-            chmod 644 /opt/cixing/config/config.yaml
+            chmod 600 /opt/cixing-prod/deploy.env
+            chmod 644 /opt/cixing-prod/config/config.yaml
             cleanup_existing_compose_state
 
             echo "pulling images from ACR"
             # Only pull cixing-api from ACR (base images already exist on host)
-            CIXING_IMAGE="$(grep '^CIXING_IMAGE=' /opt/cixing/deploy.env | cut -d= -f2-)"
+            CIXING_IMAGE="$(grep '^CIXING_IMAGE=' /opt/cixing-prod/deploy.env | cut -d= -f2-)"
             echo "$ACR_PASSWORD" | $DOCKER login --username "$ACR_USERNAME" --password-stdin registry.cn-hangzhou.aliyuncs.com
             echo "pulling $CIXING_IMAGE"
             $DOCKER pull "$CIXING_IMAGE"

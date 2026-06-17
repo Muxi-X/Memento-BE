@@ -82,7 +82,7 @@ SELECT
   n.target_upload_id,
   n.target_upload_cover_variant_key_snapshot AS target_cover_object_key,
   n.type,
-  n.reaction_type,
+  n.reaction_type::text AS reaction_type,
   n.read_at,
   n.created_at
 FROM notifications n

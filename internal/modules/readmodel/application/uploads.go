@@ -335,13 +335,6 @@ func normalizeSeed(now func() time.Time, seed *float64) float64 {
 	return float64(n%1_000_000) / 1_000_000.0
 }
 
-func int32Value(v *int32) int32 {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
 func boolPtr(v bool) *bool {
 	b := v
 	return &b

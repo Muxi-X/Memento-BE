@@ -29,6 +29,18 @@ const (
 	Bearer AuthTokenTokenType = "Bearer"
 )
 
+// Defines values for AvatarUploadSessionStatus.
+const (
+	AvatarUploadSessionStatusCanceled   AvatarUploadSessionStatus = "canceled"
+	AvatarUploadSessionStatusCommitting AvatarUploadSessionStatus = "committing"
+	AvatarUploadSessionStatusCompleted  AvatarUploadSessionStatus = "completed"
+	AvatarUploadSessionStatusCreated    AvatarUploadSessionStatus = "created"
+	AvatarUploadSessionStatusExpired    AvatarUploadSessionStatus = "expired"
+	AvatarUploadSessionStatusFailed     AvatarUploadSessionStatus = "failed"
+	AvatarUploadSessionStatusPresigned  AvatarUploadSessionStatus = "presigned"
+	AvatarUploadSessionStatusUploaded   AvatarUploadSessionStatus = "uploaded"
+)
+
 // Defines values for CustomKeywordCoverSource.
 const (
 	AutoLatest CustomKeywordCoverSource = "auto_latest"
@@ -42,6 +54,7 @@ const (
 	ErrorCodeForbidden       ErrorCode = "forbidden"
 	ErrorCodeInternal        ErrorCode = "internal"
 	ErrorCodeNotFound        ErrorCode = "not_found"
+	ErrorCodeRateLimited     ErrorCode = "rate_limited"
 	ErrorCodeUnauthorized    ErrorCode = "unauthorized"
 	ErrorCodeValidation      ErrorCode = "validation"
 )
@@ -86,8 +99,8 @@ const (
 
 // Defines values for UploadPublishSessionItemStatus.
 const (
-	PendingUpload UploadPublishSessionItemStatus = "pending_upload"
-	Uploaded      UploadPublishSessionItemStatus = "uploaded"
+	UploadPublishSessionItemStatusPendingUpload UploadPublishSessionItemStatus = "pending_upload"
+	UploadPublishSessionItemStatusUploaded      UploadPublishSessionItemStatus = "uploaded"
 )
 
 // Defines values for UploadPublishSessionStatus.
@@ -134,6 +147,30 @@ type AuthToken struct {
 
 // AuthTokenTokenType defines model for AuthToken.TokenType.
 type AuthTokenTokenType string
+
+// AvatarUploadSessionStatus defines model for AvatarUploadSessionStatus.
+type AvatarUploadSessionStatus string
+
+// CompleteAvatarUploadSessionRequest defines model for CompleteAvatarUploadSessionRequest.
+type CompleteAvatarUploadSessionRequest struct {
+	ImageEtag   string `json:"image_etag"`
+	ImageHeight int    `json:"image_height"`
+	ImageWidth  int    `json:"image_width"`
+}
+
+// CompleteAvatarUploadSessionResponse defines model for CompleteAvatarUploadSessionResponse.
+type CompleteAvatarUploadSessionResponse struct {
+	Profile   MeProfile                 `json:"profile"`
+	SessionId openapi_types.UUID        `json:"session_id"`
+	Status    AvatarUploadSessionStatus `json:"status"`
+}
+
+// CreateAvatarUploadSessionResponse defines model for CreateAvatarUploadSessionResponse.
+type CreateAvatarUploadSessionResponse struct {
+	ExpiresAt time.Time                 `json:"expires_at"`
+	SessionId openapi_types.UUID        `json:"session_id"`
+	Status    AvatarUploadSessionStatus `json:"status"`
+}
 
 // CreateCustomKeywordRequest defines model for CreateCustomKeywordRequest.
 type CreateCustomKeywordRequest struct {
@@ -194,6 +231,47 @@ type CustomKeywordItem struct {
 	TargetImageCount *int                 `json:"target_image_count"`
 	Text             string               `json:"text"`
 	TotalImageCount  int                  `json:"total_image_count"`
+}
+
+// CustomKeywordUploadCard defines model for CustomKeywordUploadCard.
+type CustomKeywordUploadCard struct {
+	CreatedAt       time.Time          `json:"created_at"`
+	CustomKeywordId openapi_types.UUID `json:"custom_keyword_id"`
+
+	// Id work_uploads.id. Use this as upload_id for the custom upload detail endpoint.
+	Id         openapi_types.UUID `json:"id"`
+	ImageCount int                `json:"image_count"`
+
+	// PreviewImages All images in this upload, rendered with square_medium variants for list preview.
+	PreviewImages []CustomKeywordUploadPreviewImage `json:"preview_images"`
+}
+
+// CustomKeywordUploadDetail defines model for CustomKeywordUploadDetail.
+type CustomKeywordUploadDetail struct {
+	CreatedAt       time.Time          `json:"created_at"`
+	CustomKeywordId openapi_types.UUID `json:"custom_keyword_id"`
+
+	// Id work_uploads.id. Use this as upload_id for the custom upload detail endpoint.
+	Id         openapi_types.UUID `json:"id"`
+	ImageCount int                `json:"image_count"`
+	Images     []WorkImage        `json:"images"`
+
+	// PreviewImages All images in this upload, rendered with square_medium variants for list preview.
+	PreviewImages []CustomKeywordUploadPreviewImage `json:"preview_images"`
+}
+
+// CustomKeywordUploadPreviewImage defines model for CustomKeywordUploadPreviewImage.
+type CustomKeywordUploadPreviewImage struct {
+	AudioDurationMs *int      `json:"audio_duration_ms"`
+	CreatedAt       time.Time `json:"created_at"`
+	DisplayOrder    int       `json:"display_order"`
+	HasAudio        bool      `json:"has_audio"`
+
+	// Id work_upload_images.id
+	Id    openapi_types.UUID   `json:"id"`
+	Image ImageRefSquareMedium `json:"image"`
+	Note  *string              `json:"note"`
+	Title *string              `json:"title"`
 }
 
 // DrawPromptRequest defines model for DrawPromptRequest.
@@ -289,6 +367,11 @@ type ListCustomKeywordImagesResponse struct {
 	CoverImage  *ImageRefDetailLarge     `json:"cover_image,omitempty"`
 	CoverSource CustomKeywordCoverSource `json:"cover_source"`
 	Items       []CustomKeywordImageCard `json:"items"`
+}
+
+// ListCustomKeywordUploadsResponse defines model for ListCustomKeywordUploadsResponse.
+type ListCustomKeywordUploadsResponse struct {
+	Items []CustomKeywordUploadCard `json:"items"`
 }
 
 // ListCustomKeywordsResponse defines model for ListCustomKeywordsResponse.
@@ -456,6 +539,21 @@ type OfficialKeyword struct {
 	Text         string             `json:"text"`
 }
 
+// PresignAvatarImageRequest defines model for PresignAvatarImageRequest.
+type PresignAvatarImageRequest struct {
+	ImageContentLength int64   `json:"image_content_length"`
+	ImageContentType   string  `json:"image_content_type"`
+	ImageSha256        *string `json:"image_sha256"`
+}
+
+// PresignAvatarImageResponse defines model for PresignAvatarImageResponse.
+type PresignAvatarImageResponse struct {
+	ImageId     openapi_types.UUID        `json:"image_id"`
+	ImageUpload UploadPresignedTarget     `json:"image_upload"`
+	SessionId   openapi_types.UUID        `json:"session_id"`
+	Status      AvatarUploadSessionStatus `json:"status"`
+}
+
 // Prompt defines model for Prompt.
 type Prompt struct {
 	Content string             `json:"content"`
@@ -601,11 +699,12 @@ type UpdateMeNotificationSettingsRequest struct {
 
 // UploadPresignedTarget defines model for UploadPresignedTarget.
 type UploadPresignedTarget struct {
-	ExpiresAt time.Time                   `json:"expires_at"`
-	Headers   *map[string]string          `json:"headers"`
-	Method    UploadPresignedTargetMethod `json:"method"`
-	ObjectKey string                      `json:"object_key"`
-	Url       string                      `json:"url"`
+	ExpiresAt  time.Time                   `json:"expires_at"`
+	FormFields *map[string]string          `json:"form_fields"`
+	Headers    *map[string]string          `json:"headers"`
+	Method     UploadPresignedTargetMethod `json:"method"`
+	ObjectKey  string                      `json:"object_key"`
+	Url        string                      `json:"url"`
 }
 
 // UploadPresignedTargetMethod defines model for UploadPresignedTarget.Method.
@@ -907,10 +1006,52 @@ type ListCustomKeywordImagesParams struct {
 	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
 }
 
+// ListCustomKeywordUploadsParams defines parameters for ListCustomKeywordUploads.
+type ListCustomKeywordUploadsParams struct {
+	// Limit Number of upload groups to return, not image count.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XRequestID Optional client-provided request id for tracing.
+	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+}
+
 // GetCustomImageParams defines parameters for GetCustomImage.
 type GetCustomImageParams struct {
 	// XRequestID Optional client-provided request id for tracing.
 	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+}
+
+// GetCustomUploadParams defines parameters for GetCustomUpload.
+type GetCustomUploadParams struct {
+	// XRequestID Optional client-provided request id for tracing.
+	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+}
+
+// CreateAvatarUploadSessionParams defines parameters for CreateAvatarUploadSession.
+type CreateAvatarUploadSessionParams struct {
+	// XRequestID Optional client-provided request id for tracing.
+	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Optional idempotency key.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// CompleteAvatarUploadSessionParams defines parameters for CompleteAvatarUploadSession.
+type CompleteAvatarUploadSessionParams struct {
+	// XRequestID Optional client-provided request id for tracing.
+	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Optional idempotency key.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// PresignAvatarUploadSessionImageParams defines parameters for PresignAvatarUploadSessionImage.
+type PresignAvatarUploadSessionImageParams struct {
+	// XRequestID Optional client-provided request id for tracing.
+	XRequestID *XRequestId `json:"X-Request-ID,omitempty"`
+
+	// IdempotencyKey Optional idempotency key.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // GetMeHomeParams defines parameters for GetMeHome.
@@ -1138,6 +1279,12 @@ type UpdateCustomKeywordJSONRequestBody = UpdateCustomKeywordRequest
 // SetCustomKeywordCoverJSONRequestBody defines body for SetCustomKeywordCover for application/json ContentType.
 type SetCustomKeywordCoverJSONRequestBody = SetCustomKeywordCoverRequest
 
+// CompleteAvatarUploadSessionJSONRequestBody defines body for CompleteAvatarUploadSession for application/json ContentType.
+type CompleteAvatarUploadSessionJSONRequestBody = CompleteAvatarUploadSessionRequest
+
+// PresignAvatarUploadSessionImageJSONRequestBody defines body for PresignAvatarUploadSessionImage for application/json ContentType.
+type PresignAvatarUploadSessionImageJSONRequestBody = PresignAvatarImageRequest
+
 // UpdateMeNicknameJSONRequestBody defines body for UpdateMeNickname for application/json ContentType.
 type UpdateMeNicknameJSONRequestBody = UpdateMeNicknameRequest
 
@@ -1213,8 +1360,23 @@ type ServerInterface interface {
 	// (GET /v1/custom-keywords/{keyword_id}/images)
 	ListCustomKeywordImages(c *gin.Context, keywordId openapi_types.UUID, params ListCustomKeywordImagesParams)
 
+	// (GET /v1/custom-keywords/{keyword_id}/uploads)
+	ListCustomKeywordUploads(c *gin.Context, keywordId openapi_types.UUID, params ListCustomKeywordUploadsParams)
+
 	// (GET /v1/custom/images/{image_id})
 	GetCustomImage(c *gin.Context, imageId openapi_types.UUID, params GetCustomImageParams)
+
+	// (GET /v1/custom/uploads/{upload_id})
+	GetCustomUpload(c *gin.Context, uploadId openapi_types.UUID, params GetCustomUploadParams)
+
+	// (POST /v1/me/avatar-upload-sessions)
+	CreateAvatarUploadSession(c *gin.Context, params CreateAvatarUploadSessionParams)
+
+	// (POST /v1/me/avatar-upload-sessions/{session_id}/complete)
+	CompleteAvatarUploadSession(c *gin.Context, sessionId openapi_types.UUID, params CompleteAvatarUploadSessionParams)
+
+	// (POST /v1/me/avatar-upload-sessions/{session_id}/image/presign)
+	PresignAvatarUploadSessionImage(c *gin.Context, sessionId openapi_types.UUID, params PresignAvatarUploadSessionImageParams)
 
 	// (GET /v1/me/home)
 	GetMeHome(c *gin.Context, params GetMeHomeParams)
@@ -2174,6 +2336,64 @@ func (siw *ServerInterfaceWrapper) ListCustomKeywordImages(c *gin.Context) {
 	siw.Handler.ListCustomKeywordImages(c, keywordId, params)
 }
 
+// ListCustomKeywordUploads operation middleware
+func (siw *ServerInterfaceWrapper) ListCustomKeywordUploads(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "keyword_id" -------------
+	var keywordId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "keyword_id", c.Param("keyword_id"), &keywordId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter keyword_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCustomKeywordUploadsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", c.Request.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Request-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Request-ID")]; found {
+		var XRequestID XRequestId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Request-ID, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", valueList[0], &XRequestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Request-ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XRequestID = &XRequestID
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListCustomKeywordUploads(c, keywordId, params)
+}
+
 // GetCustomImage operation middleware
 func (siw *ServerInterfaceWrapper) GetCustomImage(c *gin.Context) {
 
@@ -2222,6 +2442,254 @@ func (siw *ServerInterfaceWrapper) GetCustomImage(c *gin.Context) {
 	}
 
 	siw.Handler.GetCustomImage(c, imageId, params)
+}
+
+// GetCustomUpload operation middleware
+func (siw *ServerInterfaceWrapper) GetCustomUpload(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "upload_id" -------------
+	var uploadId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upload_id", c.Param("upload_id"), &uploadId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter upload_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCustomUploadParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Request-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Request-ID")]; found {
+		var XRequestID XRequestId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Request-ID, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", valueList[0], &XRequestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Request-ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XRequestID = &XRequestID
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetCustomUpload(c, uploadId, params)
+}
+
+// CreateAvatarUploadSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateAvatarUploadSession(c *gin.Context) {
+
+	var err error
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateAvatarUploadSessionParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Request-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Request-ID")]; found {
+		var XRequestID XRequestId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Request-ID, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", valueList[0], &XRequestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Request-ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XRequestID = &XRequestID
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for Idempotency-Key, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter Idempotency-Key: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateAvatarUploadSession(c, params)
+}
+
+// CompleteAvatarUploadSession operation middleware
+func (siw *ServerInterfaceWrapper) CompleteAvatarUploadSession(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_id", c.Param("session_id"), &sessionId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter session_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CompleteAvatarUploadSessionParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Request-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Request-ID")]; found {
+		var XRequestID XRequestId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Request-ID, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", valueList[0], &XRequestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Request-ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XRequestID = &XRequestID
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for Idempotency-Key, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter Idempotency-Key: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CompleteAvatarUploadSession(c, sessionId, params)
+}
+
+// PresignAvatarUploadSessionImage operation middleware
+func (siw *ServerInterfaceWrapper) PresignAvatarUploadSessionImage(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_id", c.Param("session_id"), &sessionId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter session_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PresignAvatarUploadSessionImageParams
+
+	headers := c.Request.Header
+
+	// ------------- Optional header parameter "X-Request-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Request-ID")]; found {
+		var XRequestID XRequestId
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for X-Request-ID, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", valueList[0], &XRequestID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter X-Request-ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.XRequestID = &XRequestID
+
+	}
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandler(c, fmt.Errorf("Expected one value for Idempotency-Key, got %d", n), http.StatusBadRequest)
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false})
+		if err != nil {
+			siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter Idempotency-Key: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.PresignAvatarUploadSessionImage(c, sessionId, params)
 }
 
 // GetMeHome operation middleware
@@ -3560,7 +4028,12 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.DELETE(options.BaseURL+"/v1/custom-keywords/:keyword_id/cover", wrapper.ClearCustomKeywordCover)
 	router.PATCH(options.BaseURL+"/v1/custom-keywords/:keyword_id/cover", wrapper.SetCustomKeywordCover)
 	router.GET(options.BaseURL+"/v1/custom-keywords/:keyword_id/images", wrapper.ListCustomKeywordImages)
+	router.GET(options.BaseURL+"/v1/custom-keywords/:keyword_id/uploads", wrapper.ListCustomKeywordUploads)
 	router.GET(options.BaseURL+"/v1/custom/images/:image_id", wrapper.GetCustomImage)
+	router.GET(options.BaseURL+"/v1/custom/uploads/:upload_id", wrapper.GetCustomUpload)
+	router.POST(options.BaseURL+"/v1/me/avatar-upload-sessions", wrapper.CreateAvatarUploadSession)
+	router.POST(options.BaseURL+"/v1/me/avatar-upload-sessions/:session_id/complete", wrapper.CompleteAvatarUploadSession)
+	router.POST(options.BaseURL+"/v1/me/avatar-upload-sessions/:session_id/image/presign", wrapper.PresignAvatarUploadSessionImage)
 	router.GET(options.BaseURL+"/v1/me/home", wrapper.GetMeHome)
 	router.GET(options.BaseURL+"/v1/me/notifications", wrapper.ListMeNotifications)
 	router.PATCH(options.BaseURL+"/v1/me/notifications/read", wrapper.MarkAllMeNotificationsRead)
@@ -3588,99 +4061,108 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"j68guP10+38BAAD//wS55GQ30gAA",
+	"H4sIAAAAAAAC/+w9S3PcOHN/BcV8h90qSiN7bdd+ysmWd/Mpu7JVfux+VV5nCiJ7NFiTABcAJc+qdMkp",
+	"11TlmnN+WCrX/IaviAeHD/A14jwkzW0eJNDd6G40uhvdN17A4oRRoFJ4xzfeHHAIXH38+8E7+CMFIQ9O",
+	"X2ffQxABJ4kkjHrH3gnjHCKcfUMkRDPGkeQ4IPTy0PM9EcwhxtlbcpGAd+wJyQm99G5vb30vwRzHIM00",
+	"pyHECZNAg8VPsKhP9FZ9wBEiywfRF1hk05DsAQ2y53sUx9lUhQEPshGL0MT4689AL+XcO37y9Hu/Bp3v",
+	"/d0gfRq2gBJEBKg8SDi7IiGEiOt3HIRwQlii7BDwbn2Pg0gYFaBo9wqHZqTsW8CoBKo+4iSJSKBWZ/K7",
+	"yIC/KUzzFw4z79j7p8ly7Sf6XzH5BUckVC/+wDnj78x0evIyOV7hEJnp0TdX+XtohkkE4bee38ZNLhjM",
+	"45PSs2riE0ZnEQnGQ7MTuXzGEbH4kfELEoZAN4fGcsoR8TilEjjFkZp9c7jYadF74FfAkZ5+RLzeMPkj",
+	"S2m4OZTeMIn0lCOi8ZHiVM4ZJ3/CBlEpzToaNrdWPaqRXqZy/oF90QKUcJYAl0SrQhwEIMRU2n8rqtP3",
+	"4GtCOIgpoXXF/lK9jNTLSD24QIQiAQGjoUDfMKP4v81U+ozxGEvv2CNUvniWafU0ivBFBN6x5CnkWptQ",
+	"CZfAs7nVwFP9+40HNI2940/eK8AcuPfZtQ1lOwrh2fp9KqNWGmz5Krv4HQKZzfXyCkvMPyYRw+F7EIIw",
+	"+l5imYri1AEHLNU6JRwEuaTqc6peUh8DFsdEygwc9SWJQD+vlXv2I6YB6I+atKEDk0xz63cdYBW2rvJa",
+	"khhfwhQkvlSbIqH5puiYQD88B3I5l+ZxEmdYPnGthH76moTZcO0PV1ahAFR5mAoIrjVpJYIRqRoVEs5m",
+	"JIIuwTyDc/NgJit60ClRgp9zapqSbJ1qtBM5Y7TN0MxRVRoVps8H93NEnJRRjDiILlaQsSzhGGIJB5LE",
+	"4ER0F+lSQKSZNCepkCz+CRbXjIeNEiMxvwQ51YwYsJTWRKGHkoKvsmKEfn/kt4tfBU81RDMu7wAHsk3w",
+	"rYZso7od5EP2bA2AJq2oAdBrdZ5eRETMu7SQ2jY1SdrgcY15Yl7V2w4EEsK7rE0FSQvYUDx3XqBcYI8q",
+	"UUVZOmFXwN+zlAelTRmnkk0jLDOW8L0Y0xRH7o2tONhptrgnmIcONtJb7SDqhkQkEV5MGc/Ojd2bWr9F",
+	"UBzYtQYKk3cwe/9HijmcQUjSuL4XhnbX86rA+kWEOxdBzfYaJCaRw6RLQ8KmYcqVvTqNxXCdpodQ4KU8",
+	"KlOJk2bbbUm0VZYvUChOv2gc+8rIwEWfYzFV6BWs3QvGIsB0XTyhF+rnbK/J3qVMQmXDeH501IOmksgI",
+	"HFtNx4suJqyTupkxlxQbyKQSYtf2cAV8uoJMvY9xFK3KWn2XVUyzXfIK3MwRLxq3oyOnabA+86LOHEzi",
+	"aAh4LrZQkxXJ4Bq3RodhbKF3q/GU/mpagzj8lNeMf5nqw5w4JOEh+igAyTkRCAukf59aV+UckJ7Y/IFC",
+	"JeQIaJgwQmXpxNuqRdyMUWeEhMMVgWtNeeE4jEcR0v9lZ3AFtgbNRxxoCBxCdE3kHAklTtNY7VHoCnOC",
+	"qRQKrYgIicxEyg0rIe40Pxyre66HUAKsmFNjgznHi/4KqYJxmV6rMN1yx8RR9HbmHX8ajJni21vfefTW",
+	"n/qQ7FfGv/Qkjh64juBnN4olyq/DNNiAXdZri24UXcMuh4qF1mnc7cZOPsKu/Zrj63PO4kQ2Huq+EO3e",
+	"baOSHuKn7MkqpOp119Q/xJhEJyyEluNkWKXUi9Lp+oXvJVhK4Bkf/Nuno4O/fr55cfsX12JDbMQ/Zwv9",
+	"i18c/enzZ12Et28p2BrRakRpXDCc83PO+ImhnD2iLUNNnu+lZbfzrBDvoExOZ8a5HizDORxLmEYkJsah",
+	"CVimHKbZ0xxwuFBROx1pcB78yp7wxnXudKYrtDJjDIQwslubiwM2Xnr4iuMkEyjlmmX0sIK441W1asaO",
+	"aF8ABXM+2xKk0iiu9bEKxeHD7We+2F3bQUfMw+mzr9/10mm/6GGyERknlyRbu4HvlayJFV8WyrQf9G5l",
+	"JXLo/SUBKsNXQa2vi0u95oRuW8bMKDAk34nVrLKpHWRElItn2vHR1sb0NLLDr4x6aaAR0X9bkJaRcV9N",
+	"EJvkYUScS9bP+HjfQZFUnZzrkvOiI2JtBLi7MiwNNBb6drIa2H1DiG5HYo0+q8QYs6Htm77XElC0Pmws",
+	"4ZLxRdE6gpgZ0yhgkcqPEHOcqOOMPtXgCyE5DqTTuPmZCFn30Io2c2ewG6ziRtQjiNwT3/sgW/Tg3xbO",
+	"+MMP+0v3fdcxtgSsndO1QjVC6mNtCyXvAH/pSN9xDu8P8XpgVd7Uu0F5tnjDJJmZRJbRwCwOemcI385m",
+	"JCA4Kq8QS6kcDd62SUahsnE2YQkjwrwc1A3jCh5g+0qCuSQBSbRTKMQLMdR3rFBoGc4FXBf9RqTdr4x/",
+	"GU3WVZw1GBlGPWgXnL4nAMpmRsjSiwiaI3I0jS8aV6wJxXfKhzj6Qthhx1sOdknoORaiNcljZXeL7yVm",
+	"7Eo+1fd9HUT5+y7oz+BvLIaNhMx62qaPJb7VI6bVvGDN0oBVYtPKEXMdARm0AOWoyQCV2MB6Do1DSfBF",
+	"5987/GzMbKTDoE4pBxxOacFuWGlJc9D8IukboHISuE7BNujcPFE0f96Dyv10HO64Sb+aAs24IHSFNiro",
+	"1V5xz3++zHcckx37a83OoYosVHj52cAsuXwYNx2aaV9cyh6i4VzQW3+FxNIKAnYAvwKRE58uI7UeotHP",
+	"dYFXGXYVtR8vbKhtFam1cNbH6aeEq5ZwjRAX5M9piHVkrhSfdG1566Ja98bXQcWByY050kuU3NSrGF93",
+	"o562TMaIKquBSoHfhpcKgeAV7CLrqb9jINsaLZWrHKco+2OZSRFgHvpohqPoAgdfUMIiEixQCIG6/Xax",
+	"QELfyPlGxYPRjHAhfQSRAESZBHVtYnBseUgGW9/ck4HJNfnOpYYXfVOT9THfbbnV+VvniBR5YGCCSFEW",
+	"hmaGOA4xu5ESUnLGOG77SMand7RT+0tdERjldcwRXGMOX858w7Pi1cutQHVndvSYtEgWO3GeXtYDR+fJ",
+	"ZqF81cthOtm/YXG2FpYoQ/ShcukrX1UOAZCrhltTdptuP6dJFuJFFyofsofy+yP2/p7vLUBI4CsPUL14",
+	"oUApjuoiTNX6cISJlwGNNpiq8Y/15cy3J9I6Dv3PB54Giuf5HP1y6moZNRdhz/UtPn0jydgIrZfrzJ3Q",
+	"aWTAvKlfa+xzkc4Ok19tzLNU1P+T3xO4bN60xRw/ff6ixUZqIll9bt+NV19aNfoF1aCDLBGtuXpedbGX",
+	"Lz8oB9TO3lTLyVBB0k1eFidN16loVVqeHnWJS29RvWNqnxpUjeHnsDbj95OZzKp1QmVKTNxVSJ4GMuWg",
+	"Rwogccdanb7y/Tlmf44Z/RwTL6bW7hgS5SiblA2I5g7W+3FYqgrd0ANTQ4BrNw5NFZrWtzMq9E39TtcY",
+	"B8GoKhEwMDphZygO4VqHEneVFGnrAEuefgcCpL1Y32jtULie9g5+qSlBLotIFDemF11WSfFdvzyxmwAC",
+	"5C/AyWzRbH9U4OkPgHtGZ9hyv+Psd5yRd5wN6fI6Qw/V5o2R/N3Q5+9B1jPeOk52Ky2QfdNF5QYgdj8h",
+	"8C4s62BRA5CTROSSpknnZjRgIxJqxBV3otLLHckbGvSufagKzoD5XZM6XUrbin/laV5UTlMBfKVgoCNs",
+	"1TiyiyIfk7B3sZcun9T2asE0oHUGb0zIu9lO20BoPQfGERdvBGxd+Q5uB9AotVkKpddwGBJduuzcUWin",
+	"mNrgZoklvDHIOSu5PM4/fnAa5vqd6RddzLPDt9Mrmb5CXwOKb9LlC/N1VoApVZg5UTXOWpTepmvcDIue",
+	"5E9fEUEuSETkYtDkv+Sv9fEFFgMyuV+wDkAfoqtN8hWWwfxUQlyQvEq1VQoorzxnqxNk1tch+jAnAhGB",
+	"rufAQdcwUBVZkUgvYiKF+mlGKI5QDBKHWGJT7QBLXVsAEYowEoReRoA4S2l4IDlJfERoEKUhoZfIFv1D",
+	"6jziL78rU32Smee+mUQ55n2Eabh8ShkNaBbhy8PfqK6Cto7aNrZKXuehoBYfqRQKVYho2qhHUIBpSDJF",
+	"c4heSqQLAqJM5yAcRYWVUQYxilOhjj0xwihgVBKaslQgka0uDQDNOIvRk8OecYVt1/5T8Re1gq7Kx1dF",
+	"6hjGyhhS8ebLgDMhEKOQl63AEsVMSPWbpnCAKboAzSOHzeHYYrEACfHUVTHgLCP8BaCUkj9SUJUxCFVT",
+	"XWQiZmsT96rjse06AAZHv3exxT6xsS7106T+awLTziStS7bGzSNDokGBL+mZa+xqdYUcg2GUa1TaH+q6",
+	"ONMWSk2SP422WCplw6m2fjaeSeDqhZBwCKSRIIFEGgQAYab5M42POSDKkIAE80wEta5lHHHQuuvl+alw",
+	"qd388F6G2hBKKfAShZCYszQK0QWT84KQqbo0gASOoShfvVwD/XbDW6UnT/WAT1a+WNC2guPchegpXc4r",
+	"ILtYQrA3LVUNxqr3Os/YtvkQ5bRsp71cGtccCPpZR1rBK4nikHAQGSkKu4xhU2M6zSJ2rQTIyCBe5MZK",
+	"tDB2D+iNI7OHtNmDZiSCQ/RWGzhazoI5IwH42g7SVk+2cRiptIKfmQaZsP5zBsNC/bn8I8KZoBOamxEH",
+	"GhetAIwCscI/I5SIebMVNTCXoa9l1ZzboP6fYBz0SaTSg/VOdfA9jf206M3rZQbd65SOKtL+HZM8OoSq",
+	"8eaLWqxlCkc/L3JDMsfnKne4F7eBkptMOulvqXQvW8WG65c00rhcfQyNAEeR0CY4y44aWolELMARgpDI",
+	"7DBHBAoZhUP0A7YqU493AUWNmekyTJeHuKomRJIhUzFd2f0lM6XV4Bi+mTZtBeswDcokX4Nl0CiCdzUM",
+	"2jb1nshXijYP8kP3vQ3XHovoHCW3K+44Tp+s3kY7p3ex7Y5jSsFeSoCGhF5a1VBoQdBpKRXHTeMY66TR",
+	"Sixq8FbamkXabTl0Vfwb7by48kl9nIPm+Cf++k6yNMkt1Yr07ct3bb0vTJOLIe0s2j2oRc7mLMggUA00",
+	"lINUXZib2+J0IeiOGq5JKj2YmupjzwhEYdlEs1cbexWSI1RV0kOG2VxvpRH0mqCyrBoy834+uWvJmtpN",
+	"9ba9Kn1p/KZyfI7igS7S6zpb/Tc591K5gv6O8P4yS+Dh1D7fVzHfRu1TZTUFKc9UUYauMVxUg6GXqT4N",
+	"6m8/Wlr+668fbO85RXTdjCgfeS5lots8ETpjDi84+ZrZ1d/85v3f//z3//77f/z/f/3nb9636OX5Kfrl",
+	"yeGRtoUNibxAP4yTjO2ugAs9RvbckTJvEqDZn8fed4dHh9+p0LmcKxwmc8CRnP+ZfTYR0kxOlFicht6x",
+	"9zfzf7mvYIPWWD4yKTT6y05qpb56T4+OHB6Xn8Zta2XWyzv+lK0nvsygNth4n7MnJldPJjiV80nELgmd",
+	"KNU7EUDDqVVqCRMOirwHGqqKInlR2rsTR317xcLFeA3FiqVlb8tiYQ7LlTV5Vl+TNwydGGBGbKD2TC+/",
+	"66UcpEmh9+Kt7z3v80q5b14zEyiJbWaBK5Ws08EEigFeLXafBYpFk3uxwdFo8y/byTn62Y0p7jvMUsWc",
+	"tFZOsuWJ7sRIfufTlXaw62I9Z8WlPfsV2O/Z0ZPuV0pNHzfAs5ZbpyrXfWKjB83MW7ol8DBY13nxYc+6",
+	"G9ScFS4cZJip1dsbZg+bF3pZaHnO9X3ghy1aaa6LUo9R6+is+h57Xvk2wsPY9Nw3LPa7Xslg+2v3K3lb",
+	"+80x7KDtUa/zfn98aFpr8L54Xxhhixuj8+rWI9sZdXj9oFg41uklrhe3X4fDeBzXRHMd/g0s7lYO/eVQ",
+	"xafPt4X1rqza51u/QW84+qU/DNunpRF8L43zZDxI6oWW6xx5ksfX7537agsm1CDWdyu9yc0yK+hWmxr2",
+	"gFCWkNfq921KiH/jkYxHEqzucugbn+XL1mVu9guc2ZUJ9nmbhtdK3Pas+6U3TP6oehhuRdFiGczrfOS4",
+	"rPzg+Gh8Nd5yxXvDhmMvNX4/AxCDZeoBqPxJ4aKiW/GfRIB5vVTGw1b+Ix60Wiug7KZRfm83Fyex99vL",
+	"qky6Hc/EtgVmv9msbbNZVsIyjpYQEg6BrhWoZaHD9aJbSt5VpNcnoHbwP1JQpZjN6KpluFccKIQZTiNp",
+	"aj7jrzrP1Za0bW76uVHvUaWB5363WpdgmOuq/V2QpivdTgtC5fCsmvAhNrN3ii85SxOBJEMcZMqpry4A",
+	"mxoXLKX6WvwwYXpaFKbnOyVL1T6Ce2G6szCZ/WRyY2/+3A7YWv7F2hmnJoF+bEEqXEfazaNJXdXbKyh7",
+	"1rwzaxqNPrnJi1/dNmr3nBU/2quMY/NisQLXPWDGUkHWPTfegRtjmOhORweaBQ7MJWfRHEPXMRhH24dt",
+	"RMTWFYxqwrFte15LcGrnYqZn0IN7JjfLy/K3PdLKbPLV9rnKrR9LV/93zj3TQr1tRQHaINq7anbLVbOC",
+	"ROtyPaZaSbNYl9ohlbhgFKP6EYh2c/OtDUt0S2ervSDvpiDPma553XSm0A3OdzZXrdJJ/jHmp1UWtNaj",
+	"u9EXWC5Evtv5iGeLEqz7BW9Y8AkHXYatIbh5hvmXl1FUWfp3gMOtH8x2O1dqo0tq+ttPik0JWlOhlg0O",
+	"HkbGaVPbhg3bM2dwrlfiEZsvG2V8YbphtFsktmfGDlslOYh7x+PqXFC3ZbqUoKOxygNTiC2tYzauHDfJ",
+	"5I9eO9oKnJOMEcTkxhYF7Rf3t22nXmMJ6wv7F5pQ9XCSuDtpNWW/CMYb4vVelFEk+9PW2Mt/4JiGLHYU",
+	"2lshx2ZYWkATFqB8/y5qsFRXaDRDUZXq4EqC+HUOcg4cSZYXTa+0vkWEIst+uj1KUxqEGWBa7Z3rpMAM",
+	"R8LRG2Tthz/d8nYLuQ8bVwYF2bcS69AAXT4b++qdPTc11nub16XGApAVd/SNYRGViKM6D3x7iN7lDKh5",
+	"TOiXQrxAWOinVLnrhMMVYamw/yxASOAhXjTxrNEb/TXKOvmzSOvNseamOM2daJaoDvRiEnJ83ezXf83x",
+	"tR3a9OTf2USzNVltGQk06ltzyCu676Z9tqPadWDSjR1px9NuGuyRnd//G9rlP7rN3y6QaOLPJHVWn8OB",
+	"/MDG4c1RIqkjJpGt66L7O0PqB1NiZcWj8HfdL/3I+IUuKP8AIqN23UVPqZvcZGzZeuH9I+UPVALdY5su",
+	"Sc3DttdZ08Q2vT7u3236tQvMFvj/isC1djm1+pfeqQdfq+fGMIH6u2W+K7plnmz96tPZwtgpGSkedZha",
+	"s4Sbl3J1Gi96sJWlqXi1eI0lrIPB1um5vDdXjSrUfni5W1th+F6lwfS796I02NnCnk5KFy1O1MFxr/Ga",
+	"GcB5W3OCo6gHZ7yMolwHjlTxZuP3lx9zBGcfe9l598vokj3Utrmvcr23bx5Djk6DCAz0lutRHvEVVcuD",
+	"2/BoPzwmtNyX6H6YvS+muhp1PqRarS78tlWytQWgDV+T3V8Q6iNjpSt4olvWypf+sBAgRX6b9+DCZmxa",
+	"cayss3kOyTkg9azpnl5qbC6QSIMAIDxEH+ZEICM4SKQXMZECzQjFEUqAH+jKLzFIHGKJEaGqt7qYM+mb",
+	"PBRCL1GpzaW/7LZuG/0WflIdJCeUSfBVtkr+h+7JbmfS7Sbd95VdvP9SkUl1I99fcMQDO4Jrspba8284",
+	"r6INoP2Fxweoz8wt5i51Zi7AVrXXjHGEjXpjM12eShyiH3AwN78SCTGK8SLXL9EiT+7MNJjWNjMSAbrI",
+	"6KwS7ebYlLpyaR8Dyl75jCrrhqo7o3vK8OxVz0NSPQGLYyJb66HERO7AUWb9Ur2hbTwm8qE5hXZeItS7",
+	"/Moyasoj79ibeIWXbixHmd7kGb+ZX9QUhe953lzhN+MzKPxSqXNV+KcCXmkUmxxR+PEMvNvPt/8IAAD/",
+	"/1qrsDLD7gAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

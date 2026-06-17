@@ -2,149 +2,72 @@ package oss
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
-	alioss "github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
+	"github.com/qiniu/go-sdk/v7/auth"
+	"github.com/qiniu/go-sdk/v7/storage"
 
 	appcfg "cixing/internal/config"
 )
 
-type Clients struct {
-	Internal *alioss.Client // 给外部/前端使用
-	Public   *alioss.Client // 给后端服务自己用
+// Client 封装七牛云 Kodo 的访问凭证和配置。
+// 与阿里云不同，七牛云不需要 Internal/Public 双 Client，一个凭证 + Bucket 即可。
+type Client struct {
+	Mac    *auth.Credentials
+	Bucket string
+	Cfg    *storage.Config
+	Domain string // CDN 加速域名
+	Region string // 配置中传入的 region 标识，用于 Zone 兜底
 }
 
-type clientOptions struct {
-	endpoint            string
-	endpointIsCName     bool
-	useInternalEndpoint bool
-}
-
-// 创建 Clients，同时具有 Internal 和 Public
-func NewClients(cfg appcfg.OSSConfig) (*Clients, error) {
-	// 基础校验
-	if strings.TrimSpace(cfg.Region) == "" {
-		return nil, fmt.Errorf("oss: region is required")
+// NewClient 根据配置创建七牛云 Client。
+func NewClient(cfg appcfg.OSSConfig) (*Client, error) {
+	ak := strings.TrimSpace(cfg.AccessKeyID)
+	sk := strings.TrimSpace(cfg.AccessKeySecret)
+	if ak == "" || sk == "" {
+		return nil, fmt.Errorf("oss: access key id and secret are required")
 	}
-	switch credentialMode(cfg) {
-	case "static":
-		if strings.TrimSpace(cfg.AccessKeyID) == "" || strings.TrimSpace(cfg.AccessKeySecret) == "" {
-			return nil, fmt.Errorf("oss: access key id/secret are required")
-		}
-	case "ecs_ram_role":
-		if strings.TrimSpace(cfg.ECSRoleName) == "" {
-			return nil, fmt.Errorf("oss: ecs role name is required for ecs_ram_role")
-		}
+
+	bucket := strings.TrimSpace(cfg.Bucket)
+	if bucket == "" {
+		return nil, fmt.Errorf("oss: bucket is required")
+	}
+
+	mac := auth.New(ak, sk)
+	region := strings.TrimSpace(cfg.Region)
+
+	// 优先用配置指定的 Zone，其次依赖 SDK 自动查询
+	zone := zoneFromRegion(region)
+	storageCfg := &storage.Config{
+		Zone:          zone,
+		UseHTTPS:      true,
+		UseCdnDomains: false,
+	}
+
+	return &Client{
+		Mac:    mac,
+		Bucket: bucket,
+		Cfg:    storageCfg,
+		Domain: strings.TrimSpace(cfg.PublicEndpoint),
+		Region: region,
+	}, nil
+}
+
+// zoneFromRegion 将配置中的 region 字符串映射为七牛云 Zone 常量。
+// 如果 region 为空或无法识别，返回 nil，后续操作由 SDK 自动查询。
+func zoneFromRegion(region string) *storage.Zone {
+	switch strings.ToLower(strings.TrimSpace(region)) {
+	case "cn-east-1", "z0", "huadong":
+		return &storage.ZoneHuadong
+	case "cn-north-1", "z1", "huabei":
+		return &storage.ZoneHuabei
+	case "cn-south-1", "z2", "huanan":
+		return &storage.ZoneHuanan
+	case "na-0", "na0", "beimei":
+		return &storage.ZoneBeimei
+	case "ap-southeast-1", "xinjiapo":
+		return &storage.ZoneXinjiapo
 	default:
-		return nil, fmt.Errorf("oss: unsupported credential mode %q", cfg.CredentialMode)
+		return nil
 	}
-
-	// 创建公共 client，给外部/前端使用
-	publicOpts := clientOptions{
-		endpoint:        cfg.PublicEndpoint,
-		endpointIsCName: cfg.PublicEndpointIsCName,
-	}
-	publicClient, _, err := newClient(cfg, publicOpts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 判断是否需要创建专门的 internal client
-	internalOpts := clientOptions{
-		endpoint:            cfg.InternalEndpoint,
-		endpointIsCName:     cfg.InternalEndpointIsCName,
-		useInternalEndpoint: cfg.UseInternalEndpoint && strings.TrimSpace(cfg.InternalEndpoint) == "",
-	}
-	if !needsDedicatedInternalClient(publicOpts, internalOpts) {
-		return &Clients{Internal: publicClient, Public: publicClient}, nil
-	}
-
-	internalClient, _, err := newClient(cfg, internalOpts)
-	if err != nil {
-		return nil, err
-	}
-	return &Clients{Internal: internalClient, Public: publicClient}, nil
-}
-
-// 判断是否需要不同的 client
-func needsDedicatedInternalClient(publicOpts, internalOpts clientOptions) bool {
-	if internalOpts.useInternalEndpoint {
-		return true
-	}
-
-	publicEndpoint := strings.TrimSpace(publicOpts.endpoint)
-	internalEndpoint := strings.TrimSpace(internalOpts.endpoint)
-	if internalEndpoint == "" {
-		return false
-	}
-
-	return publicEndpoint != internalEndpoint || publicOpts.endpointIsCName != internalOpts.endpointIsCName
-}
-
-func newClient(cfg appcfg.OSSConfig, opts clientOptions) (*alioss.Client, string, error) {
-	// 规范化 endpoint
-	normalizedEndpoint, err := normalizeEndpoint(opts.endpoint)
-	if err != nil {
-		return nil, "", err
-	}
-
-	// 创建 CredentialsProvider
-	provider, err := newCredentialsProvider(cfg)
-	if err != nil {
-		return nil, "", err
-	}
-
-	// 创建 OSS Client
-	ossCfg := alioss.LoadDefaultConfig().
-		WithRegion(strings.TrimSpace(cfg.Region)).
-		WithCredentialsProvider(provider)
-
-	if normalizedEndpoint != "" {
-		ossCfg.WithEndpoint(normalizedEndpoint)
-	}
-	if opts.endpointIsCName {
-		ossCfg.WithUseCName(true)
-	}
-	if opts.useInternalEndpoint {
-		ossCfg.WithUseInternalEndpoint(true)
-	}
-
-	return alioss.NewClient(ossCfg), normalizedEndpoint, nil
-}
-
-// 获取 credentialMode，默认为 static
-func credentialMode(cfg appcfg.OSSConfig) string {
-	mode := strings.ToLower(strings.TrimSpace(cfg.CredentialMode))
-	if mode == "" {
-		return "static"
-	}
-	return mode
-}
-
-// 规范化 endpoint
-func normalizeEndpoint(endpoint string) (string, error) {
-	endpoint = strings.TrimSpace(endpoint)
-	if endpoint == "" {
-		return "", nil
-	}
-	if !strings.Contains(endpoint, "://") {
-		if strings.Contains(endpoint, "/") {
-			return "", fmt.Errorf("oss: invalid endpoint %q", endpoint)
-		}
-		return strings.TrimRight(endpoint, "/"), nil
-	}
-
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return "", fmt.Errorf("oss: invalid endpoint %q: %w", endpoint, err)
-	}
-	if u.Host == "" {
-		return "", fmt.Errorf("oss: invalid endpoint %q", endpoint)
-	}
-	if u.Path != "" && u.Path != "/" {
-		return "", fmt.Errorf("oss: endpoint must not contain a path: %q", endpoint)
-	}
-
-	return strings.TrimRight(u.Scheme+"://"+u.Host, "/"), nil
 }

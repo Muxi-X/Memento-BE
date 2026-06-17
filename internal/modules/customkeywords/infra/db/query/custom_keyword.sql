@@ -166,6 +166,90 @@ WHERE wu.author_user_id = sqlc.arg(owner_user_id)::uuid
 ORDER BY wu.published_at DESC, wu.id DESC, wui.display_order ASC, wui.id ASC
 LIMIT sqlc.arg(row_limit)::int;
 
+-- name: ListCustomKeywordUploadImages :many
+WITH page_uploads AS (
+  SELECT
+    wu.id,
+    wu.custom_keyword_id,
+    wu.image_count,
+    wu.published_at
+  FROM work_uploads wu
+  WHERE wu.author_user_id = sqlc.arg(owner_user_id)::uuid
+    AND wu.custom_keyword_id = sqlc.arg(keyword_id)::uuid
+    AND wu.context_type = 'custom_keyword'
+    AND wu.visibility_status = 'visible'
+    AND wu.deleted_at IS NULL
+  ORDER BY wu.published_at DESC, wu.id DESC
+  LIMIT sqlc.arg(row_limit)::int
+)
+SELECT
+  pu.id AS upload_id,
+  pu.custom_keyword_id,
+  pu.image_count,
+  pu.published_at AS upload_created_at,
+  wui.id AS image_id,
+  wui.image_asset_id,
+  ma.original_object_key,
+  ma.width,
+  ma.height,
+  wui.display_order,
+  wuic.title,
+  wuic.note,
+  (wuic.audio_asset_id IS NOT NULL) AS has_audio,
+  wuic.audio_duration_ms,
+  audio.original_object_key AS audio_object_key,
+  wui.created_at AS image_created_at
+FROM page_uploads pu
+JOIN work_upload_images wui
+  ON wui.upload_id = pu.id
+ AND wui.deleted_at IS NULL
+JOIN media_assets ma
+  ON ma.id = wui.image_asset_id
+ AND ma.deleted_at IS NULL
+LEFT JOIN work_upload_image_contents wuic
+  ON wuic.work_upload_image_id = wui.id
+LEFT JOIN media_assets audio
+  ON audio.id = wuic.audio_asset_id
+ AND audio.deleted_at IS NULL
+ORDER BY pu.published_at DESC, pu.id DESC, wui.display_order ASC, wui.id ASC;
+
+-- name: GetCustomKeywordUploadImages :many
+SELECT
+  wu.id AS upload_id,
+  wu.custom_keyword_id,
+  wu.image_count,
+  wu.published_at AS upload_created_at,
+  wui.id AS image_id,
+  wui.image_asset_id,
+  ma.original_object_key,
+  ma.width,
+  ma.height,
+  wui.display_order,
+  wuic.title,
+  wuic.note,
+  (wuic.audio_asset_id IS NOT NULL) AS has_audio,
+  wuic.audio_duration_ms,
+  audio.original_object_key AS audio_object_key,
+  wui.created_at AS image_created_at
+FROM work_uploads wu
+JOIN work_upload_images wui
+  ON wui.upload_id = wu.id
+ AND wui.deleted_at IS NULL
+JOIN media_assets ma
+  ON ma.id = wui.image_asset_id
+ AND ma.deleted_at IS NULL
+LEFT JOIN work_upload_image_contents wuic
+  ON wuic.work_upload_image_id = wui.id
+LEFT JOIN media_assets audio
+  ON audio.id = wuic.audio_asset_id
+ AND audio.deleted_at IS NULL
+WHERE wu.id = sqlc.arg(upload_id)::uuid
+  AND wu.author_user_id = sqlc.arg(owner_user_id)::uuid
+  AND wu.context_type = 'custom_keyword'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+ORDER BY wui.display_order ASC, wui.id ASC;
+
 -- name: GetCustomKeywordImageDetail :one
 SELECT
   wui.id,

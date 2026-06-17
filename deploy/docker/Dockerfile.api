@@ -1,0 +1,39 @@
+ARG GO_VERSION=1.25.1
+
+FROM golang:${GO_VERSION}-alpine AS builder
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+	go build -trimpath -ldflags="-s -w" -o /out/cixing-api ./cmd/cixing-api && \
+	CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+	go build -trimpath -ldflags="-s -w" -o /out/cixing-migrate ./cmd/cixing-migrate
+
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata && \
+	adduser -D -H -u 10001 cixing
+
+WORKDIR /app
+
+COPY --from=builder /out/cixing-api /app/cixing-api
+COPY --from=builder /out/cixing-migrate /app/cixing-migrate
+COPY --from=builder /src/db/migrations /app/db/migrations
+
+RUN chown -R cixing:cixing /app
+
+USER cixing
+
+ENV CONFIG_FILE=/app/config/config.yaml
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/cixing-api"]
