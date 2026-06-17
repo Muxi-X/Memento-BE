@@ -1,4 +1,4 @@
-name: cixing-prod
+name: ${COMPOSE_PROJECT_NAME:-cixing-prod}
 
 services:
   postgres:
@@ -42,7 +42,7 @@ services:
     environment:
       CONFIG_FILE: /app/config/config.yaml
     volumes:
-      - /opt/cixing/config/config.yaml:/app/config/config.yaml:ro
+      - ${CONFIG_HOST_PATH:-/opt/cixing/config/config.yaml}:/app/config/config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,7 +53,7 @@ services:
     environment:
       CONFIG_FILE: /app/config/config.yaml
     volumes:
-      - /opt/cixing/config/config.yaml:/app/config/config.yaml:ro
+      - ${CONFIG_HOST_PATH:-/opt/cixing/config/config.yaml}:/app/config/config.yaml:ro
     ports:
       # API is exposed only on localhost; a shared Nginx reverse-proxies external traffic.
       - "127.0.0.1:${API_PORT:-8080}:8080"
