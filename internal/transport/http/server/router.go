@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -50,6 +51,8 @@ func NewRouter(opts Options) *gin.Engine {
 	if opts.AccessTokenVerifier != nil {
 		r.Use(middleware.AuthOptional(opts.AccessTokenVerifier))
 	}
+
+	r.Use(middleware.AnalyticsBodyLimit(32768))
 
 	// 注册 v1 路由，启用 v1 的 OpenAPI validator
 	if opts.V1 != nil {
@@ -99,6 +102,14 @@ func NewRouter(opts Options) *gin.Engine {
 
 			// validator 校验失败时统一错误出口
 			errHandler := func(c *gin.Context, message string, statusCode int) {
+				if middleware.RequestBodyLimitExceeded(c) {
+					response.WriteStatus(c, http.StatusRequestEntityTooLarge, response.ValidationErr([]response.FieldError{{
+						Field:  "body",
+						Rule:   "max",
+						Reason: "must be at most 32768 bytes",
+					}}, ""))
+					return
+				}
 				// security 相关错误，映射成 401/403 错误体
 				if isOpenAPISecurityError(message) {
 					if strings.Contains(message, openAPISecurityForbiddenMarker) {

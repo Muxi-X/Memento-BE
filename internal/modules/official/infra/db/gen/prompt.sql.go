@@ -51,6 +51,84 @@ func (q *Queries) DrawRandomPrompt(ctx context.Context, arg DrawRandomPromptPara
 	return i, err
 }
 
+const getDailyPrompt = `-- name: GetDailyPrompt :one
+SELECT user_id, biz_date, keyword_id, prompt_id, kind, content_snapshot, selected_at, created_at
+FROM user_daily_prompts
+WHERE user_id = $1
+  AND biz_date = $2
+`
+
+type GetDailyPromptParams struct {
+	UserID  uuid.UUID   `json:"user_id"`
+	BizDate pgtype.Date `json:"biz_date"`
+}
+
+func (q *Queries) GetDailyPrompt(ctx context.Context, arg GetDailyPromptParams) (UserDailyPrompt, error) {
+	row := q.db.QueryRow(ctx, getDailyPrompt, arg.UserID, arg.BizDate)
+	var i UserDailyPrompt
+	err := row.Scan(
+		&i.UserID,
+		&i.BizDate,
+		&i.KeywordID,
+		&i.PromptID,
+		&i.Kind,
+		&i.ContentSnapshot,
+		&i.SelectedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertDailyPrompt = `-- name: InsertDailyPrompt :one
+INSERT INTO user_daily_prompts (
+  user_id, biz_date, keyword_id, prompt_id, kind, content_snapshot, selected_at
+) VALUES (
+  $1::uuid,
+  $2::date,
+  $3::uuid,
+  $4::uuid,
+  $5::prompt_kind,
+  $6::text,
+  $7::timestamptz
+)
+ON CONFLICT (user_id, biz_date) DO NOTHING
+RETURNING user_id, biz_date, keyword_id, prompt_id, kind, content_snapshot, selected_at, created_at
+`
+
+type InsertDailyPromptParams struct {
+	UserID          uuid.UUID          `json:"user_id"`
+	BizDate         pgtype.Date        `json:"biz_date"`
+	KeywordID       uuid.UUID          `json:"keyword_id"`
+	PromptID        uuid.UUID          `json:"prompt_id"`
+	Kind            string             `json:"kind"`
+	ContentSnapshot string             `json:"content_snapshot"`
+	SelectedAt      pgtype.Timestamptz `json:"selected_at"`
+}
+
+func (q *Queries) InsertDailyPrompt(ctx context.Context, arg InsertDailyPromptParams) (UserDailyPrompt, error) {
+	row := q.db.QueryRow(ctx, insertDailyPrompt,
+		arg.UserID,
+		arg.BizDate,
+		arg.KeywordID,
+		arg.PromptID,
+		arg.Kind,
+		arg.ContentSnapshot,
+		arg.SelectedAt,
+	)
+	var i UserDailyPrompt
+	err := row.Scan(
+		&i.UserID,
+		&i.BizDate,
+		&i.KeywordID,
+		&i.PromptID,
+		&i.Kind,
+		&i.ContentSnapshot,
+		&i.SelectedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listPromptsByKeyword = `-- name: ListPromptsByKeyword :many
 SELECT id, keyword_id, kind, content, display_order, is_active, created_at, updated_at
 FROM official_keyword_prompts
@@ -85,6 +163,19 @@ func (q *Queries) ListPromptsByKeyword(ctx context.Context, keywordID uuid.UUID)
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockUser = `-- name: LockUser :one
+SELECT id
+FROM users
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockUser(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockUser, id)
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertPrompt = `-- name: UpsertPrompt :one

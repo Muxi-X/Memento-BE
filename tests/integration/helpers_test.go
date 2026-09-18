@@ -3,7 +3,6 @@ package integration
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -45,7 +44,7 @@ func openIntegrationDB(t *testing.T) *pgxpool.Pool {
 	}
 	defer func() { _ = adminConn.Close(ctx) }()
 
-	dbName := fmt.Sprintf("cixing_it_%d", time.Now().UnixNano())
+	dbName := "cixing_it_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if _, err := adminConn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
 		t.Fatalf("create test database: %v", err)
 	}

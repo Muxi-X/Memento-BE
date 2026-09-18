@@ -38,8 +38,12 @@ func (s *CatalogService) AssignDailyKeyword(ctx context.Context, bizDate time.Ti
 }
 
 func (s *CatalogService) EnsureDailyKeywordAssignment(ctx context.Context, bizDate time.Time) (dofficial.DailyKeywordAssignment, error) {
+	return s.ensureDailyKeywordAssignment(ctx, s.repo, bizDate)
+}
+
+func (s *CatalogService) ensureDailyKeywordAssignment(ctx context.Context, repo dofficial.Repository, bizDate time.Time) (dofficial.DailyKeywordAssignment, error) {
 	normalized := common.NormalizeBizDate(bizDate)
-	assignment, err := s.repo.GetDailyKeywordAssignment(ctx, normalized)
+	assignment, err := repo.GetDailyKeywordAssignment(ctx, normalized)
 	if err == nil {
 		return assignment, nil
 	}
@@ -47,7 +51,7 @@ func (s *CatalogService) EnsureDailyKeywordAssignment(ctx context.Context, bizDa
 		return dofficial.DailyKeywordAssignment{}, err
 	}
 
-	active, err := s.repo.ListActiveOfficialKeywords(ctx)
+	active, err := repo.ListActiveOfficialKeywords(ctx)
 	if err != nil {
 		return dofficial.DailyKeywordAssignment{}, err
 	}
@@ -56,7 +60,7 @@ func (s *CatalogService) EnsureDailyKeywordAssignment(ctx context.Context, bizDa
 	}
 
 	keyword := rotatingKeywordForDate(active, normalized)
-	return s.repo.UpsertDailyKeywordAssignment(ctx, normalized, keyword.ID)
+	return repo.UpsertDailyKeywordAssignment(ctx, normalized, keyword.ID)
 }
 
 func rotatingKeywordForDate(keywords []dofficial.OfficialKeyword, bizDate time.Time) dofficial.OfficialKeyword {

@@ -4,6 +4,7 @@ sql:
   - engine: "postgresql"
     schema: &core_schema
       - "db/migrations/000001_core.up.sql"
+      - "db/migrations/000005_daily_prompts_analytics.up.sql"
     queries:
       - "internal/modules/auth/infra/db/query/*.sql"
     gen:
@@ -120,3 +121,13 @@ sql:
         <<: *go_defaults
         out: "internal/modules/readmodel/infra/db/gen"
         package: "readmodeldb"
+
+  - engine: "postgresql"
+    schema: *core_schema
+    queries:
+      - "internal/modules/analytics/infra/db/query/*.sql"
+    gen:
+      go:
+        <<: *go_defaults
+        out: "internal/modules/analytics/infra/db/gen"
+        package: "analyticsdb"

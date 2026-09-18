@@ -115,6 +115,14 @@ func statusFromCode(code Code) int {
 
 // 统一错误出口函数
 func Write(c *gin.Context, err error) {
+	write(c, 0, err)
+}
+
+func WriteStatus(c *gin.Context, status int, err error) {
+	write(c, status, err)
+}
+
+func write(c *gin.Context, status int, err error) {
 	// 获得 RequestID
 	rid := middleware.GetRequestID(c)
 
@@ -142,7 +150,10 @@ func Write(c *gin.Context, err error) {
 		resp.Details = ae.Details
 	}
 
-	JSON(c, statusFromCode(ae.Code), resp)
+	if status == 0 {
+		status = statusFromCode(ae.Code)
+	}
+	JSON(c, status, resp)
 	c.Abort()
 }
 

@@ -13,6 +13,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"cixing/internal/config"
+	analyticsapp "cixing/internal/modules/analytics/application"
+	analyticsdb "cixing/internal/modules/analytics/infra/db/gen"
+	analyticsrepo "cixing/internal/modules/analytics/infra/db/repo"
 	authapp "cixing/internal/modules/auth/application"
 	authrepo "cixing/internal/modules/auth/infra/db/repo"
 	customapp "cixing/internal/modules/customkeywords/application"
@@ -148,7 +151,9 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 	officialModuleRepo := officialrepo.NewRepository(officialdb.New(pool))
 	readmodelModuleRepo := readmodelrepo.NewRepository(readmodeldb.New(pool))
 	officialCatalog := officialapp.NewCatalogService(officialModuleRepo, nil)
-	officialPromptSvc := officialapp.NewPromptService(officialModuleRepo)
+	officialPromptSvc := officialapp.NewPromptService(pool, officialModuleRepo, officialCatalog, nil)
+	analyticsModuleRepo := analyticsrepo.NewRepository(analyticsdb.New(pool))
+	analyticsSvc := analyticsapp.NewService(pool, analyticsModuleRepo, nil)
 	customKeywordRepo := customrepo.NewRepository(customdb.New(pool))
 	customKeywordSvc := customapp.NewService(customKeywordRepo, urlResolver)
 	profileSvc := profileapp.NewService(profilerepo.NewRepository(profiledb.New(pool)), urlResolver)
@@ -182,6 +187,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 			Login:              authM.Login,
 			Reset:              authM.Reset,
 			OfficialPrompts:    officialPromptSvc,
+			Analytics:          analyticsSvc,
 			PublishingSessions: publishSessionSvc,
 			CustomKeywords:     customKeywordSvc,
 			Profile:            profileSvc,

@@ -31,6 +31,16 @@ type UpsertDailyKeywordStatParams struct {
 	ImageCount           int32
 }
 
+type InsertDailyPromptParams struct {
+	UserID          uuid.UUID
+	BizDate         time.Time
+	KeywordID       uuid.UUID
+	PromptID        uuid.UUID
+	Kind            PromptKind
+	ContentSnapshot string
+	SelectedAt      time.Time
+}
+
 type Repository interface {
 	GetOfficialKeywordByID(ctx context.Context, id uuid.UUID) (OfficialKeyword, error)
 	GetOfficialKeywordByText(ctx context.Context, text string) (OfficialKeyword, error)
@@ -41,6 +51,10 @@ type Repository interface {
 	DrawRandomPrompt(ctx context.Context, keywordID uuid.UUID, kind PromptKind) (OfficialPrompt, error)
 	ListPromptsByKeyword(ctx context.Context, keywordID uuid.UUID) ([]OfficialPrompt, error)
 	UpsertPrompt(ctx context.Context, params UpsertPromptParams) (OfficialPrompt, error)
+
+	LockUser(ctx context.Context, userID uuid.UUID) error
+	GetDailyPrompt(ctx context.Context, userID uuid.UUID, bizDate time.Time) (DailyPrompt, error)
+	InsertDailyPrompt(ctx context.Context, params InsertDailyPromptParams) (DailyPrompt, error)
 
 	GetDailyKeywordAssignment(ctx context.Context, bizDate time.Time) (DailyKeywordAssignment, error)
 	UpsertDailyKeywordAssignment(ctx context.Context, bizDate time.Time, keywordID uuid.UUID) (DailyKeywordAssignment, error)

@@ -50,3 +50,13 @@ type KeywordWithStats struct {
 	UploadCount          int32
 	ImageCount           int32
 }
+
+type DailyPrompt struct {
+	UserID          uuid.UUID
+	BizDate         time.Time
+	KeywordID       uuid.UUID
+	PromptID        uuid.UUID
+	Kind            PromptKind
+	ContentSnapshot string
+	SelectedAt      time.Time
+}
