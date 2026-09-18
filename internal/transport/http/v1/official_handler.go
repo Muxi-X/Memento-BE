@@ -55,28 +55,76 @@ func (h *Handler) ListOfficialDateUploads(c *gin.Context, bizDate openapi_types.
 }
 
 // (POST /v1/official/keywords/{keyword_id}/prompts/draw)
-func (h *Handler) DrawOfficialPrompt(c *gin.Context, _ openapi_types.UUID, _ v1gen.DrawOfficialPromptParams) {
+func (h *Handler) DrawOfficialPrompt(c *gin.Context, keywordID openapi_types.UUID, _ v1gen.DrawOfficialPromptParams) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		writeUnauthorized(c)
+		return
+	}
+
 	var req v1gen.DrawPromptRequest
 	if !bindJSON(c, &req) {
 		return
 	}
 
-	keywordID, err := uuid.Parse(c.Param("keyword_id"))
-	if err != nil {
-		writeFieldValidation(c, "keyword_id", "uuid", "must be a valid UUID")
-		return
+	var requestedBizDate *time.Time
+	if req.BizDate != nil {
+		value := req.BizDate.Time
+		requestedBizDate = &value
 	}
 
-	out, err := h.OfficialPrompts.Draw(c.Request.Context(), keywordID, string(req.Kind))
+	out, err := h.OfficialPrompts.Draw(c.Request.Context(), userID, uuid.UUID(keywordID), string(req.Kind), requestedBizDate)
 	if err != nil {
 		writeOfficialPromptError(c, err)
 		return
 	}
 
-	response.JSON(c, http.StatusOK, v1gen.Prompt{
-		Id:      openapi_types.UUID(out.ID),
-		Kind:    v1gen.PromptKind(out.Kind),
-		Content: out.Content,
+	response.JSON(c, http.StatusOK, v1gen.DrawPromptResponse{
+		Id:         openapi_types.UUID(out.ID),
+		Kind:       v1gen.PromptKind(out.Kind),
+		Content:    out.Content,
+		BizDate:    openapi_types.Date{Time: out.BizDate},
+		KeywordId:  openapi_types.UUID(out.KeywordID),
+		SelectedAt: out.SelectedAt,
+		ResetsAt:   out.ResetsAt,
+	})
+}
+
+// (GET /v1/me/daily-prompt)
+func (h *Handler) GetMeDailyPrompt(c *gin.Context, _ v1gen.GetMeDailyPromptParams) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		writeUnauthorized(c)
+		return
+	}
+
+	out, err := h.OfficialPrompts.GetDailyPrompt(c.Request.Context(), userID)
+	if err != nil {
+		writeOfficialPromptError(c, err)
+		return
+	}
+
+	var keywordID *openapi_types.UUID
+	if out.KeywordID != nil {
+		value := openapi_types.UUID(*out.KeywordID)
+		keywordID = &value
+	}
+
+	var selection *v1gen.DailyPromptSelection
+	if out.Selection != nil {
+		selection = &v1gen.DailyPromptSelection{
+			Id:         openapi_types.UUID(out.Selection.ID),
+			Kind:       v1gen.PromptKind(out.Selection.Kind),
+			Content:    out.Selection.Content,
+			SelectedAt: out.Selection.SelectedAt,
+		}
+	}
+
+	response.JSON(c, http.StatusOK, v1gen.DailyPromptResponse{
+		BizDate:   openapi_types.Date{Time: out.BizDate},
+		ResetsAt:  out.ResetsAt,
+		KeywordId: keywordID,
+		Selection: selection,
 	})
 }
 

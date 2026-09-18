@@ -9,6 +9,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AnalyticsEvent struct {
+	UserID         uuid.UUID          `json:"user_id"`
+	EventID        uuid.UUID          `json:"event_id"`
+	EventName      string             `json:"event_name"`
+	Kind           interface{}        `json:"kind"`
+	Source         string             `json:"source"`
+	SchemaVersion  int16              `json:"schema_version"`
+	OccurredAt     pgtype.Timestamptz `json:"occurred_at"`
+	SelectionState string             `json:"selection_state"`
+	ContextBizDate pgtype.Date        `json:"context_biz_date"`
+	KeywordID      pgtype.UUID        `json:"keyword_id"`
+	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
+	BizDate        pgtype.Date        `json:"biz_date"`
+	RequestID      string             `json:"request_id"`
+}
+
 type AvatarUploadSession struct {
 	ID           uuid.UUID          `json:"id"`
 	UserID       uuid.UUID          `json:"user_id"`
@@ -181,6 +197,17 @@ type User struct {
 	Status    int16              `json:"status"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UserDailyPrompt struct {
+	UserID          uuid.UUID          `json:"user_id"`
+	BizDate         pgtype.Date        `json:"biz_date"`
+	KeywordID       uuid.UUID          `json:"keyword_id"`
+	PromptID        uuid.UUID          `json:"prompt_id"`
+	Kind            string             `json:"kind"`
+	ContentSnapshot string             `json:"content_snapshot"`
+	SelectedAt      pgtype.Timestamptz `json:"selected_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type UserEmailIdentity struct {

@@ -1,6 +1,7 @@
 package v1
 
 import (
+	analyticsapp "cixing/internal/modules/analytics/application"
 	authapp "cixing/internal/modules/auth/application"
 	customapp "cixing/internal/modules/customkeywords/application"
 	officialapp "cixing/internal/modules/official/application"
@@ -18,6 +19,7 @@ type Handler struct {
 	Reset  *authapp.PasswordResetService
 
 	OfficialPrompts    *officialapp.PromptService
+	Analytics          *analyticsapp.Service
 	PublishingSessions *publishingapp.UploadSessionService
 	CustomKeywords     *customapp.Service
 	Profile            *profileapp.Service

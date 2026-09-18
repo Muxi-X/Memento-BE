@@ -17,6 +17,7 @@ tags:
   - name: UploadSessions
   - name: Reactions
   - name: Me
+  - name: Analytics
 
 components:
   securitySchemes:
@@ -95,6 +96,33 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: Too Many Requests (code=rate_limited, reason=common.rate_limited). Retry with backoff; this does not determine daily selection state.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PayloadTooLarge:
+      description: Request body exceeds 32768 bytes (32 KiB). The entire batch is rejected; code=validation, reason=validation.failed.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorResponse"
+          example:
+            code: validation
+            reason: validation.failed
+            message: Request body exceeds 32768 bytes
+            request_id: req-example
+            details:
+              - field: body
+                rule: max_bytes
+                reason: Request body must not exceed 32768 bytes
     InternalError:
       description: Internal Server Error
       headers:
@@ -328,6 +356,176 @@ components:
       properties:
         kind:
           $ref: "#/components/schemas/PromptKind"
+        biz_date:
+          type: string
+          format: date
+          description: |
+            Page context date (YYYY-MM-DD). New clients must send this field.
+            The server must validate that this is a real calendar date, not just a matching string.
+            Optional only for legacy clients; omission uses the current server business date.
+            A date different from the current Asia/Shanghai date returns 409
+            (official.prompt_date_changed), even if a selection already exists.
+            This field cannot request a historical or future selection.
+          example: "2026-09-14"
+
+    DailyPromptSelection:
+      type: object
+      nullable: true
+      description: Saved selection snapshot, or null if not selected at query time. The id identifies the source prompt, not a daily selection record.
+      required: [id, kind, content, selected_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/PromptKind"
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Content saved at selection time; later source edits, deactivation or deletion do not change it.
+        selected_at:
+          type: string
+          format: date-time
+          description: Original successful selection time (RFC3339).
+
+    DailyPromptResponse:
+      type: object
+      required: [biz_date, resets_at, keyword_id, selection]
+      properties:
+        biz_date:
+          type: string
+          format: date
+          description: Current server business date in Asia/Shanghai (YYYY-MM-DD).
+        resets_at:
+          type: string
+          format: date-time
+          description: Start of the next business day, at 00:00 Asia/Shanghai (RFC3339).
+        keyword_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Saved keyword ID if selected; otherwise today's available official keyword ID, or null if unavailable.
+        selection:
+          $ref: "#/components/schemas/DailyPromptSelection"
+
+    DrawPromptResponse:
+      allOf:
+        - $ref: "#/components/schemas/Prompt"
+        - type: object
+          required: [biz_date, keyword_id, selected_at, resets_at]
+          properties:
+            biz_date:
+              type: string
+              format: date
+              description: Server business date in Asia/Shanghai (YYYY-MM-DD).
+            keyword_id:
+              type: string
+              format: uuid
+              description: Keyword ID saved with the selection; may differ from the requested keyword when already selected.
+            selected_at:
+              type: string
+              format: date-time
+              description: Original successful selection time (RFC3339).
+            resets_at:
+              type: string
+              format: date-time
+              description: Start of the next business day, at 00:00 Asia/Shanghai (RFC3339).
+      description: Saved selection with the original top-level id/kind/content fields. The id is the source prompt ID. Always render the returned kind and content.
+
+    # ---- Analytics ----
+    AnalyticsEvent:
+      type: object
+      additionalProperties: false
+      required: [event_id, event_name, kind, source, schema_version, occurred_at, selection_state]
+      description: |
+        One accepted user click. User identity comes only from the verified JWT.
+        Unknown context_biz_date and keyword_id may be omitted or null.
+        No arbitrary properties, user_id, credentials or prompt content are accepted.
+        The oneOf branches enforce event_name/kind/selection_state combinations.
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: UUID generated once per accepted click. Retries reuse the same ID; another real click uses a new ID.
+        event_name:
+          type: string
+          enum: [prompt_entry_click, prompt_kind_entry_click]
+        kind:
+          type: string
+          nullable: true
+          enum: [null, intuition, structure, concept]
+          description: Must be null for the main entry; must be a valid prompt kind for a kind entry.
+        source:
+          type: string
+          enum: [today]
+        schema_version:
+          type: integer
+          enum: [1]
+        occurred_at:
+          type: string
+          format: date-time
+          description: Client-reported click time (RFC3339); aggregation uses the server receipt business date instead.
+        context_biz_date:
+          type: string
+          format: date
+          nullable: true
+          description: Page context date (YYYY-MM-DD), or null if unknown; does not determine the aggregation date.
+        keyword_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Page context keyword ID, or null if unknown.
+        selection_state:
+          type: string
+          enum: [unknown, unselected, selected]
+          description: State known at click time. A kind entry click requires unselected.
+      oneOf:
+        - type: object
+          properties:
+            event_name:
+              type: string
+              enum: [prompt_entry_click]
+            kind:
+              type: string
+              nullable: true
+              enum: [null]
+        - type: object
+          properties:
+            event_name:
+              type: string
+              enum: [prompt_kind_entry_click]
+            kind:
+              $ref: "#/components/schemas/PromptKind"
+            selection_state:
+              type: string
+              enum: [unselected]
+
+    AnalyticsEventsBatchRequest:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/AnalyticsEvent"
+
+    AnalyticsEventsBatchResponse:
+      type: object
+      required: [acknowledged_event_ids]
+      properties:
+        acknowledged_event_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: IDs acknowledged after the whole batch is saved, including IDs already stored for this user. Remove these IDs from the client queue.
+          items:
+            type: string
+            format: uuid
 
     # ---- Images & Uploads ----
     ImageVariant:
@@ -1761,7 +1959,34 @@ paths:
     post:
       tags: [Official]
       operationId: drawOfficialPrompt
-      security: []
+      summary: 领取今日提示或返回当天已选提示
+      description: |
+        Implemented backend contract for the daily-selection feature.
+        Requires login. Each user can save one prompt per Asia/Shanghai business date,
+        shared across all kinds and keywords. Clicking a kind claims immediately.
+        Identity comes from the verified JWT, not the request body.
+
+        Validate the keyword UUID, kind and optional biz_date first. A date different
+        from the server date returns 409 official.prompt_date_changed before checking
+        an existing selection. Omitted biz_date uses today for legacy compatibility.
+        An existing selection returns its original id, kind, content, keyword_id and
+        selected_at, even when a different valid kind or keyword UUID is requested.
+        Without an existing selection, the keyword must match today's official keyword
+        (409 official.keyword_mismatch otherwise). No available keyword or no active
+        prompt of the requested kind returns 404 official.prompt_not_available.
+
+        Concurrent requests return the first successfully saved selection. Only a
+        successful save consumes the daily allowance; retries do not draw again.
+        Source edits, deactivation or deletion do not change the saved snapshot.
+        Render the returned kind, which can differ from the clicked kind.
+        On timeout or an uncertain outcome, query GET /v1/me/daily-prompt to confirm.
+        On either 409 reason, refresh the official home and daily state and require
+        a new user click; do not automatically claim for the new context.
+        Invalid parameters use 400 validation/validation.failed; authentication,
+        rate limiting and server failures use 401 unauthorized/common.unauthorized,
+        429 rate_limited/common.rate_limited and 500 internal/common.internal.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/XRequestId"
         - name: keyword_id
@@ -1776,20 +2001,189 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/DrawPromptRequest"
+            examples:
+              currentClient:
+                summary: 新客户端始终携带页面业务日期
+                value:
+                  kind: structure
+                  biz_date: "2026-09-14"
+              legacyClient:
+                summary: 旧客户端暂可省略日期，但仍需登录并受每日额度限制
+                value:
+                  kind: structure
       responses:
         "200":
-          description: OK
+          description: Newly saved or previously saved daily selection. Both return the same response shape.
           headers:
             X-Request-ID:
               $ref: "#/components/headers/X-Request-ID"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Prompt"
+                $ref: "#/components/schemas/DrawPromptResponse"
+              example:
+                id: "22222222-2222-4222-8222-222222222222"
+                kind: structure
+                content: "你和别人之间，隔着多远？"
+                biz_date: "2026-09-14"
+                keyword_id: "11111111-1111-4111-8111-111111111111"
+                selected_at: "2026-09-14T10:30:00+08:00"
+                resets_at: "2026-09-15T00:00:00+08:00"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: No available official keyword or no active prompt of the requested kind on first selection. No allowance is consumed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: not_found
+                reason: official.prompt_not_available
+                message: No prompt is available for selection
+                request_id: req-example
+        "409":
+          description: Context changed. Refresh official home and daily prompt state before another user-initiated selection.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                dateChanged:
+                  summary: 页面日期与服务端当天日期不一致，优先于已领取判断
+                  value:
+                    code: conflict
+                    reason: official.prompt_date_changed
+                    message: The business date has changed
+                    request_id: req-example
+                keywordMismatch:
+                  summary: 首次领取的关键词不是当天分配的官方关键词
+                  value:
+                    code: conflict
+                    reason: official.keyword_mismatch
+                    message: The keyword does not match today's official keyword
+                    request_id: req-example
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---- Analytics ----
+
+  /v1/analytics/events/batch:
+    post:
+      tags: [Analytics]
+      operationId: batchAnalyticsEvents
+      summary: 批量上报提示入口点击事件
+      description: |
+        Implemented backend contract for prompt-entry analytics.
+        Accepts 1-20 events per batch and at most 32768 bytes (32 KiB) per request body.
+        The byte limit is enforced before OpenAPI body decoding; x-max-body-bytes documents that limit.
+        Identity is taken only from the verified JWT; user_id is not a request field.
+        All events must pass validation before the entire batch is saved in one transaction.
+        Duplicate (user_id, event_id) pairs are acknowledged without inserting again
+        or updating the first saved event. A 200 response acknowledges all IDs in the batch.
+        Invalid fields or event combinations return 400 validation/validation.failed
+        and write nothing. Oversized bodies return 413 validation/validation.failed.
+        Authentication, rate limiting and storage failures use
+        401 unauthorized/common.unauthorized, 429 rate_limited/common.rate_limited
+        and 500 internal/common.internal. A failed transaction saves no events.
+
+        prompt_entry_click records an accepted main-entry click, including revisits;
+        kind must be null and selection_state is the state known at click time.
+        prompt_kind_entry_click records an accepted kind click before claiming;
+        kind must be intuition (直觉), structure (空间) or concept (观念), and
+        selection_state must be unselected. A failed claim still counts as a click.
+        Prefetching, rendering, automatic display, tutorial actions, disabled or
+        blocked clicks and automatic request retries do not create new events.
+
+        Send asynchronously without blocking UI or showing business error messages.
+        Retry network errors, 429 and 5xx with backoff and the original event IDs.
+        Aggregate clicks and distinct users separately per event_name/kind using the
+        server receipt date in Asia/Shanghai. Delayed events count on the receipt date;
+        occurred_at and context_biz_date are diagnostic context only.
+        Clicks and successful HTTP responses are not successful-selection counts.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      requestBody:
+        required: true
+        description: JSON body limited to 32768 bytes (32 KiB), including all events.
+        x-max-body-bytes: 32768
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyticsEventsBatchRequest"
+            examples:
+              entryClick:
+                summary: 提示总入口点击
+                value:
+                  events:
+                    - event_id: "33333333-3333-4333-8333-333333333333"
+                      event_name: prompt_entry_click
+                      kind: null
+                      source: today
+                      schema_version: 1
+                      occurred_at: "2026-09-14T10:29:50+08:00"
+                      context_biz_date: "2026-09-14"
+                      keyword_id: "11111111-1111-4111-8111-111111111111"
+                      selection_state: unknown
+              kindClick:
+                summary: 空间类型入口点击
+                value:
+                  events:
+                    - event_id: "44444444-4444-4444-8444-444444444444"
+                      event_name: prompt_kind_entry_click
+                      kind: structure
+                      source: today
+                      schema_version: 1
+                      occurred_at: "2026-09-14T10:30:00+08:00"
+                      context_biz_date: "2026-09-14"
+                      keyword_id: "11111111-1111-4111-8111-111111111111"
+                      selection_state: unselected
+              unknownContext:
+                summary: 日期和关键词尚未加载时点击总入口
+                value:
+                  events:
+                    - event_id: "55555555-5555-4555-8555-555555555555"
+                      event_name: prompt_entry_click
+                      kind: null
+                      source: today
+                      schema_version: 1
+                      occurred_at: "2026-09-14T10:29:45+08:00"
+                      context_biz_date: null
+                      keyword_id: null
+                      selection_state: unknown
+      responses:
+        "200":
+          description: All events acknowledged after saving the batch, including duplicates already stored for this user.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsEventsBatchResponse"
+              example:
+                acknowledged_event_ids:
+                  - "33333333-3333-4333-8333-333333333333"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -2527,6 +2921,80 @@ paths:
           $ref: "#/components/responses/InternalError"
 
   # ---- Me ----
+
+  /v1/me/daily-prompt:
+    get:
+      tags: [Me]
+      operationId: getMeDailyPrompt
+      summary: 查询我的今日提示状态
+      description: |
+        Implemented backend contract for the daily-selection feature.
+        Returns the authenticated user's current Asia/Shanghai business date and saved
+        selection. Does not accept keyword or historical date parameters. No prompt is
+        drawn and no daily selection is created; today's official keyword may be assigned
+        on demand. Identity comes from the verified JWT.
+
+        selection=null means not selected at query time; another device may select later.
+        If no official keyword is available, return 200 with keyword_id=null and
+        selection=null. After selection, always return the saved keyword ID and snapshot,
+        even if the source keyword or prompt has changed, been deactivated or deleted.
+        The id is the source prompt ID, and selected_at is the original selection time.
+
+        Supports prefetch, background refresh, app restart and confirmation after a claim
+        times out. Clients may immediately display valid in-memory state for the same
+        account and business date, refreshing in the background. Invalidate on account
+        change, 401, resets_at, date mismatch or uncertain claim outcome. A failed query
+        is not an unselected result; an older empty GET must not overwrite a confirmed
+        selection. On uncertain claim outcome, issue a fresh GET started after that claim.
+        Authentication, rate limiting and server failures use
+        401 unauthorized/common.unauthorized, 429 rate_limited/common.rate_limited
+        and 500 internal/common.internal.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/XRequestId"
+      responses:
+        "200":
+          description: Current daily state; unavailable keywords are a successful empty state, not a 404.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyPromptResponse"
+              examples:
+                unselected:
+                  summary: 当天尚未领取
+                  value:
+                    biz_date: "2026-09-14"
+                    resets_at: "2026-09-15T00:00:00+08:00"
+                    keyword_id: "11111111-1111-4111-8111-111111111111"
+                    selection: null
+                selected:
+                  summary: 返回当天已保存的原提示
+                  value:
+                    biz_date: "2026-09-14"
+                    resets_at: "2026-09-15T00:00:00+08:00"
+                    keyword_id: "11111111-1111-4111-8111-111111111111"
+                    selection:
+                      id: "22222222-2222-4222-8222-222222222222"
+                      kind: structure
+                      content: "你和别人之间，隔着多远？"
+                      selected_at: "2026-09-14T10:30:00+08:00"
+                unavailable:
+                  summary: 尚未领取且当天无可用官方关键词
+                  value:
+                    biz_date: "2026-09-14"
+                    resets_at: "2026-09-15T00:00:00+08:00"
+                    keyword_id: null
+                    selection: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /v1/me/home:
     get:

@@ -15,6 +15,33 @@ WHERE keyword_id = $1
 ORDER BY random()
 LIMIT 1;
 
+-- name: LockUser :one
+SELECT id
+FROM users
+WHERE id = $1
+FOR UPDATE;
+
+-- name: GetDailyPrompt :one
+SELECT *
+FROM user_daily_prompts
+WHERE user_id = $1
+  AND biz_date = $2;
+
+-- name: InsertDailyPrompt :one
+INSERT INTO user_daily_prompts (
+  user_id, biz_date, keyword_id, prompt_id, kind, content_snapshot, selected_at
+) VALUES (
+  sqlc.arg(user_id)::uuid,
+  sqlc.arg(biz_date)::date,
+  sqlc.arg(keyword_id)::uuid,
+  sqlc.arg(prompt_id)::uuid,
+  sqlc.arg(kind)::prompt_kind,
+  sqlc.arg(content_snapshot)::text,
+  sqlc.arg(selected_at)::timestamptz
+)
+ON CONFLICT (user_id, biz_date) DO NOTHING
+RETURNING *;
+
 -- name: UpsertPrompt :one
 INSERT INTO official_keyword_prompts (id, keyword_id, kind, content, display_order, is_active)
 VALUES (

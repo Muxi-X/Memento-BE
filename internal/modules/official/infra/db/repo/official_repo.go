@@ -131,6 +131,49 @@ func (r *Repository) UpsertPrompt(ctx context.Context, params dofficial.UpsertPr
 	return mapPrompt(row), nil
 }
 
+func (r *Repository) LockUser(ctx context.Context, userID uuid.UUID) error {
+	if _, err := r.q.LockUser(ctx, userID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return common.ErrNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) GetDailyPrompt(ctx context.Context, userID uuid.UUID, bizDate time.Time) (dofficial.DailyPrompt, error) {
+	row, err := r.q.GetDailyPrompt(ctx, officialdb.GetDailyPromptParams{
+		UserID:  userID,
+		BizDate: dateOnlyArg(bizDate),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dofficial.DailyPrompt{}, common.ErrNotFound
+		}
+		return dofficial.DailyPrompt{}, err
+	}
+	return mapDailyPrompt(row), nil
+}
+
+func (r *Repository) InsertDailyPrompt(ctx context.Context, params dofficial.InsertDailyPromptParams) (dofficial.DailyPrompt, error) {
+	row, err := r.q.InsertDailyPrompt(ctx, officialdb.InsertDailyPromptParams{
+		UserID:          params.UserID,
+		BizDate:         dateOnlyArg(params.BizDate),
+		KeywordID:       params.KeywordID,
+		PromptID:        params.PromptID,
+		Kind:            string(params.Kind),
+		ContentSnapshot: params.ContentSnapshot,
+		SelectedAt:      pgtype.Timestamptz{Time: params.SelectedAt, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dofficial.DailyPrompt{}, common.ErrConflict
+		}
+		return dofficial.DailyPrompt{}, err
+	}
+	return mapDailyPrompt(row), nil
+}
+
 func (r *Repository) GetDailyKeywordAssignment(ctx context.Context, bizDate time.Time) (dofficial.DailyKeywordAssignment, error) {
 	row, err := r.q.GetDailyKeywordAssignment(ctx, dateOnlyArg(bizDate))
 	if err != nil {
@@ -250,6 +293,18 @@ func mapStat(row officialdb.DailyKeywordStat) dofficial.DailyKeywordStat {
 		ImageCount:           row.ImageCount,
 		CreatedAt:            row.CreatedAt.Time,
 		UpdatedAt:            row.UpdatedAt.Time,
+	}
+}
+
+func mapDailyPrompt(row officialdb.UserDailyPrompt) dofficial.DailyPrompt {
+	return dofficial.DailyPrompt{
+		UserID:          row.UserID,
+		BizDate:         row.BizDate.Time,
+		KeywordID:       row.KeywordID,
+		PromptID:        row.PromptID,
+		Kind:            dofficial.PromptKind(enumString(row.Kind)),
+		ContentSnapshot: row.ContentSnapshot,
+		SelectedAt:      row.SelectedAt.Time,
 	}
 }
 
