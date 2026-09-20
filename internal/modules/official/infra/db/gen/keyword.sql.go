@@ -12,23 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deactivateOfficialKeyword = `-- name: DeactivateOfficialKeyword :one
-UPDATE official_keywords
-SET is_active = false
-WHERE id = $1
-RETURNING id, text, category, is_active, display_order, created_at, updated_at
+const advanceOfficialKeywordRotationDate = `-- name: AdvanceOfficialKeywordRotationDate :one
+UPDATE official_keyword_rotation_state
+SET last_planned_date = $1::date,
+    updated_at = now()
+WHERE singleton = TRUE
+RETURNING singleton, initialized, effective_date, last_planned_date, next_queue_position, updated_at
 `
 
-func (q *Queries) DeactivateOfficialKeyword(ctx context.Context, id uuid.UUID) (OfficialKeyword, error) {
-	row := q.db.QueryRow(ctx, deactivateOfficialKeyword, id)
-	var i OfficialKeyword
+func (q *Queries) AdvanceOfficialKeywordRotationDate(ctx context.Context, bizDate pgtype.Date) (OfficialKeywordRotationState, error) {
+	row := q.db.QueryRow(ctx, advanceOfficialKeywordRotationDate, bizDate)
+	var i OfficialKeywordRotationState
 	err := row.Scan(
-		&i.ID,
-		&i.Text,
-		&i.Category,
-		&i.IsActive,
-		&i.DisplayOrder,
-		&i.CreatedAt,
+		&i.Singleton,
+		&i.Initialized,
+		&i.EffectiveDate,
+		&i.LastPlannedDate,
+		&i.NextQueuePosition,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -118,6 +118,26 @@ func (q *Queries) GetKeywordForDateWithStats(ctx context.Context, bizDate pgtype
 	return i, err
 }
 
+const getLastDailyKeywordAssignmentBefore = `-- name: GetLastDailyKeywordAssignmentBefore :one
+SELECT biz_date, keyword_id, created_at, updated_at
+FROM daily_keyword_assignments
+WHERE biz_date < $1
+ORDER BY biz_date DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLastDailyKeywordAssignmentBefore(ctx context.Context, bizDate pgtype.Date) (DailyKeywordAssignment, error) {
+	row := q.db.QueryRow(ctx, getLastDailyKeywordAssignmentBefore, bizDate)
+	var i DailyKeywordAssignment
+	err := row.Scan(
+		&i.BizDate,
+		&i.KeywordID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getOfficialKeywordByID = `-- name: GetOfficialKeywordByID :one
 
 SELECT id, text, category, is_active, display_order, created_at, updated_at
@@ -125,7 +145,7 @@ FROM official_keywords
 WHERE id = $1
 `
 
-// Official keywords + assignments + daily stats
+// Official keywords + assignments + daily stats + rotation
 func (q *Queries) GetOfficialKeywordByID(ctx context.Context, id uuid.UUID) (OfficialKeyword, error) {
 	row := q.db.QueryRow(ctx, getOfficialKeywordByID, id)
 	var i OfficialKeyword
@@ -162,6 +182,194 @@ func (q *Queries) GetOfficialKeywordByText(ctx context.Context, text string) (Of
 	return i, err
 }
 
+const hasDailyKeywordAssignmentOnOrAfter = `-- name: HasDailyKeywordAssignmentOnOrAfter :one
+SELECT EXISTS (
+  SELECT 1
+  FROM daily_keyword_assignments
+  WHERE biz_date >= $1
+)
+`
+
+func (q *Queries) HasDailyKeywordAssignmentOnOrAfter(ctx context.Context, bizDate pgtype.Date) (bool, error) {
+	row := q.db.QueryRow(ctx, hasDailyKeywordAssignmentOnOrAfter, bizDate)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasOfficialKeywordCatalogMismatch = `-- name: HasOfficialKeywordCatalogMismatch :one
+SELECT EXISTS (
+  SELECT 1
+  FROM official_keywords ok
+  FULL JOIN official_keyword_catalog_baseline baseline ON baseline.keyword_id = ok.id
+  LEFT JOIN LATERAL (
+    SELECT change.action
+    FROM official_keyword_changes change
+    WHERE change.keyword_id = baseline.keyword_id
+      AND change.applied_at IS NOT NULL
+    ORDER BY change.effective_date DESC, change.id DESC
+    LIMIT 1
+  ) applied ON TRUE
+  WHERE ok.id IS NULL
+     OR baseline.keyword_id IS NULL
+     OR ok.is_active IS DISTINCT FROM COALESCE(applied.action = 'activate', baseline.initial_is_active)
+)
+`
+
+func (q *Queries) HasOfficialKeywordCatalogMismatch(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, hasOfficialKeywordCatalogMismatch)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const initializeOfficialKeywordRotation = `-- name: InitializeOfficialKeywordRotation :one
+UPDATE official_keyword_rotation_state
+SET initialized = TRUE,
+    effective_date = $1::date,
+    last_planned_date = $1::date - 1,
+    next_queue_position = 1,
+    updated_at = now()
+WHERE singleton = TRUE
+  AND initialized = FALSE
+RETURNING singleton, initialized, effective_date, last_planned_date, next_queue_position, updated_at
+`
+
+func (q *Queries) InitializeOfficialKeywordRotation(ctx context.Context, effectiveDate pgtype.Date) (OfficialKeywordRotationState, error) {
+	row := q.db.QueryRow(ctx, initializeOfficialKeywordRotation, effectiveDate)
+	var i OfficialKeywordRotationState
+	err := row.Scan(
+		&i.Singleton,
+		&i.Initialized,
+		&i.EffectiveDate,
+		&i.LastPlannedDate,
+		&i.NextQueuePosition,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertDailyKeywordAssignment = `-- name: InsertDailyKeywordAssignment :one
+INSERT INTO daily_keyword_assignments (
+  biz_date, keyword_id
+) VALUES (
+  $1::date,
+  $2::uuid
+)
+ON CONFLICT (biz_date) DO NOTHING
+RETURNING biz_date, keyword_id, created_at, updated_at
+`
+
+type InsertDailyKeywordAssignmentParams struct {
+	BizDate   pgtype.Date `json:"biz_date"`
+	KeywordID uuid.UUID   `json:"keyword_id"`
+}
+
+func (q *Queries) InsertDailyKeywordAssignment(ctx context.Context, arg InsertDailyKeywordAssignmentParams) (DailyKeywordAssignment, error) {
+	row := q.db.QueryRow(ctx, insertDailyKeywordAssignment, arg.BizDate, arg.KeywordID)
+	var i DailyKeywordAssignment
+	err := row.Scan(
+		&i.BizDate,
+		&i.KeywordID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertOfficialKeyword = `-- name: InsertOfficialKeyword :one
+INSERT INTO official_keywords (
+  id, text, category, is_active, display_order
+) VALUES (
+  $1::uuid,
+  $2::varchar,
+  $3::keyword_category,
+  $4::boolean,
+  COALESCE($5::int, (SELECT COALESCE(MAX(ok.display_order), 0) + 1 FROM official_keywords ok))
+)
+RETURNING id, text, category, is_active, display_order, created_at, updated_at
+`
+
+type InsertOfficialKeywordParams struct {
+	ID           uuid.UUID   `json:"id"`
+	Text         string      `json:"text"`
+	Category     string      `json:"category"`
+	IsActive     bool        `json:"is_active"`
+	DisplayOrder pgtype.Int4 `json:"display_order"`
+}
+
+func (q *Queries) InsertOfficialKeyword(ctx context.Context, arg InsertOfficialKeywordParams) (OfficialKeyword, error) {
+	row := q.db.QueryRow(ctx, insertOfficialKeyword,
+		arg.ID,
+		arg.Text,
+		arg.Category,
+		arg.IsActive,
+		arg.DisplayOrder,
+	)
+	var i OfficialKeyword
+	err := row.Scan(
+		&i.ID,
+		&i.Text,
+		&i.Category,
+		&i.IsActive,
+		&i.DisplayOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertOfficialKeywordChange = `-- name: InsertOfficialKeywordChange :one
+INSERT INTO official_keyword_changes (
+  keyword_id, action, effective_date
+) VALUES (
+  $1::uuid,
+  $2::text,
+  $3::date
+)
+RETURNING id, keyword_id, action, effective_date, applied_at, created_at
+`
+
+type InsertOfficialKeywordChangeParams struct {
+	KeywordID     uuid.UUID   `json:"keyword_id"`
+	Action        string      `json:"action"`
+	EffectiveDate pgtype.Date `json:"effective_date"`
+}
+
+func (q *Queries) InsertOfficialKeywordChange(ctx context.Context, arg InsertOfficialKeywordChangeParams) (OfficialKeywordChange, error) {
+	row := q.db.QueryRow(ctx, insertOfficialKeywordChange, arg.KeywordID, arg.Action, arg.EffectiveDate)
+	var i OfficialKeywordChange
+	err := row.Scan(
+		&i.ID,
+		&i.KeywordID,
+		&i.Action,
+		&i.EffectiveDate,
+		&i.AppliedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertOfficialKeywordRotationQueueItem = `-- name: InsertOfficialKeywordRotationQueueItem :exec
+INSERT INTO official_keyword_rotation_queue (
+  keyword_id, queue_position
+)
+VALUES (
+  $1::uuid,
+  $2::bigint
+)
+`
+
+type InsertOfficialKeywordRotationQueueItemParams struct {
+	KeywordID     uuid.UUID `json:"keyword_id"`
+	QueuePosition int64     `json:"queue_position"`
+}
+
+func (q *Queries) InsertOfficialKeywordRotationQueueItem(ctx context.Context, arg InsertOfficialKeywordRotationQueueItemParams) error {
+	_, err := q.db.Exec(ctx, insertOfficialKeywordRotationQueueItem, arg.KeywordID, arg.QueuePosition)
+	return err
+}
+
 const listActiveOfficialKeywords = `-- name: ListActiveOfficialKeywords :many
 SELECT id, text, category, is_active, display_order, created_at, updated_at
 FROM official_keywords
@@ -195,6 +403,237 @@ func (q *Queries) ListActiveOfficialKeywords(ctx context.Context) ([]OfficialKey
 		return nil, err
 	}
 	return items, nil
+}
+
+const listDailyKeywordAssignmentsBetween = `-- name: ListDailyKeywordAssignmentsBetween :many
+SELECT biz_date, keyword_id, created_at, updated_at
+FROM daily_keyword_assignments
+WHERE biz_date >= $1::date
+  AND biz_date <= $2::date
+ORDER BY biz_date ASC
+`
+
+type ListDailyKeywordAssignmentsBetweenParams struct {
+	StartDate pgtype.Date `json:"start_date"`
+	EndDate   pgtype.Date `json:"end_date"`
+}
+
+func (q *Queries) ListDailyKeywordAssignmentsBetween(ctx context.Context, arg ListDailyKeywordAssignmentsBetweenParams) ([]DailyKeywordAssignment, error) {
+	rows, err := q.db.Query(ctx, listDailyKeywordAssignmentsBetween, arg.StartDate, arg.EndDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DailyKeywordAssignment{}
+	for rows.Next() {
+		var i DailyKeywordAssignment
+		if err := rows.Scan(
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOfficialKeywordRotationQueue = `-- name: ListOfficialKeywordRotationQueue :many
+SELECT
+  q.keyword_id,
+  q.queue_position,
+  ok.is_active
+FROM official_keyword_rotation_queue q
+JOIN official_keywords ok ON ok.id = q.keyword_id
+ORDER BY q.queue_position ASC
+`
+
+type ListOfficialKeywordRotationQueueRow struct {
+	KeywordID     uuid.UUID `json:"keyword_id"`
+	QueuePosition int64     `json:"queue_position"`
+	IsActive      bool      `json:"is_active"`
+}
+
+func (q *Queries) ListOfficialKeywordRotationQueue(ctx context.Context) ([]ListOfficialKeywordRotationQueueRow, error) {
+	rows, err := q.db.Query(ctx, listOfficialKeywordRotationQueue)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOfficialKeywordRotationQueueRow{}
+	for rows.Next() {
+		var i ListOfficialKeywordRotationQueueRow
+		if err := rows.Scan(&i.KeywordID, &i.QueuePosition, &i.IsActive); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOfficialKeywords = `-- name: ListOfficialKeywords :many
+SELECT id, text, category, is_active, display_order, created_at, updated_at
+FROM official_keywords
+ORDER BY display_order ASC, id ASC
+`
+
+func (q *Queries) ListOfficialKeywords(ctx context.Context) ([]OfficialKeyword, error) {
+	rows, err := q.db.Query(ctx, listOfficialKeywords)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OfficialKeyword{}
+	for rows.Next() {
+		var i OfficialKeyword
+		if err := rows.Scan(
+			&i.ID,
+			&i.Text,
+			&i.Category,
+			&i.IsActive,
+			&i.DisplayOrder,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingOfficialKeywordChangesThrough = `-- name: ListPendingOfficialKeywordChangesThrough :many
+SELECT id, keyword_id, action, effective_date, applied_at, created_at
+FROM official_keyword_changes
+WHERE applied_at IS NULL
+  AND effective_date <= $1::date
+ORDER BY effective_date ASC, id ASC
+`
+
+func (q *Queries) ListPendingOfficialKeywordChangesThrough(ctx context.Context, bizDate pgtype.Date) ([]OfficialKeywordChange, error) {
+	rows, err := q.db.Query(ctx, listPendingOfficialKeywordChangesThrough, bizDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OfficialKeywordChange{}
+	for rows.Next() {
+		var i OfficialKeywordChange
+		if err := rows.Scan(
+			&i.ID,
+			&i.KeywordID,
+			&i.Action,
+			&i.EffectiveDate,
+			&i.AppliedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockOfficialKeywordRotationState = `-- name: LockOfficialKeywordRotationState :one
+SELECT singleton, initialized, effective_date, last_planned_date, next_queue_position, updated_at
+FROM official_keyword_rotation_state
+WHERE singleton = TRUE
+FOR UPDATE
+`
+
+func (q *Queries) LockOfficialKeywordRotationState(ctx context.Context) (OfficialKeywordRotationState, error) {
+	row := q.db.QueryRow(ctx, lockOfficialKeywordRotationState)
+	var i OfficialKeywordRotationState
+	err := row.Scan(
+		&i.Singleton,
+		&i.Initialized,
+		&i.EffectiveDate,
+		&i.LastPlannedDate,
+		&i.NextQueuePosition,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markOfficialKeywordChangeApplied = `-- name: MarkOfficialKeywordChangeApplied :exec
+UPDATE official_keyword_changes
+SET applied_at = now()
+WHERE id = $1::bigint
+  AND applied_at IS NULL
+`
+
+func (q *Queries) MarkOfficialKeywordChangeApplied(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markOfficialKeywordChangeApplied, id)
+	return err
+}
+
+const moveOfficialKeywordToRotationTail = `-- name: MoveOfficialKeywordToRotationTail :one
+WITH next_position AS (
+  UPDATE official_keyword_rotation_state
+  SET next_queue_position = next_queue_position + 1,
+      updated_at = now()
+  WHERE singleton = TRUE
+  RETURNING next_queue_position - 1 AS queue_position
+)
+UPDATE official_keyword_rotation_queue q
+SET queue_position = next_position.queue_position
+FROM next_position
+WHERE q.keyword_id = $1::uuid
+RETURNING q.keyword_id, q.queue_position
+`
+
+type MoveOfficialKeywordToRotationTailRow struct {
+	KeywordID     uuid.UUID `json:"keyword_id"`
+	QueuePosition int64     `json:"queue_position"`
+}
+
+func (q *Queries) MoveOfficialKeywordToRotationTail(ctx context.Context, keywordID uuid.UUID) (MoveOfficialKeywordToRotationTailRow, error) {
+	row := q.db.QueryRow(ctx, moveOfficialKeywordToRotationTail, keywordID)
+	var i MoveOfficialKeywordToRotationTailRow
+	err := row.Scan(&i.KeywordID, &i.QueuePosition)
+	return i, err
+}
+
+const moveOrInsertOfficialKeywordAtRotationTail = `-- name: MoveOrInsertOfficialKeywordAtRotationTail :one
+WITH next_position AS (
+  UPDATE official_keyword_rotation_state
+  SET next_queue_position = next_queue_position + 1,
+      updated_at = now()
+  WHERE singleton = TRUE
+  RETURNING next_queue_position - 1 AS queue_position
+)
+INSERT INTO official_keyword_rotation_queue (keyword_id, queue_position)
+SELECT $1::uuid, next_position.queue_position
+FROM next_position
+ON CONFLICT (keyword_id) DO UPDATE
+SET queue_position = EXCLUDED.queue_position
+RETURNING keyword_id, queue_position
+`
+
+type MoveOrInsertOfficialKeywordAtRotationTailRow struct {
+	KeywordID     uuid.UUID `json:"keyword_id"`
+	QueuePosition int64     `json:"queue_position"`
+}
+
+func (q *Queries) MoveOrInsertOfficialKeywordAtRotationTail(ctx context.Context, keywordID uuid.UUID) (MoveOrInsertOfficialKeywordAtRotationTailRow, error) {
+	row := q.db.QueryRow(ctx, moveOrInsertOfficialKeywordAtRotationTail, keywordID)
+	var i MoveOrInsertOfficialKeywordAtRotationTailRow
+	err := row.Scan(&i.KeywordID, &i.QueuePosition)
+	return i, err
 }
 
 const recomputeDailyKeywordStatsFromUploads = `-- name: RecomputeDailyKeywordStatsFromUploads :one
@@ -238,29 +677,97 @@ func (q *Queries) RecomputeDailyKeywordStatsFromUploads(ctx context.Context, biz
 	return i, err
 }
 
-const upsertDailyKeywordAssignment = `-- name: UpsertDailyKeywordAssignment :one
-INSERT INTO daily_keyword_assignments (
-  biz_date, keyword_id
-) VALUES (
-  $1::date,
-  $2::uuid
-)
-ON CONFLICT (biz_date) DO UPDATE
-SET keyword_id = EXCLUDED.keyword_id
-RETURNING biz_date, keyword_id, created_at, updated_at
+const registerOfficialKeywordBaseline = `-- name: RegisterOfficialKeywordBaseline :exec
+INSERT INTO official_keyword_catalog_baseline (keyword_id, initial_is_active)
+VALUES ($1::uuid, FALSE)
 `
 
-type UpsertDailyKeywordAssignmentParams struct {
-	BizDate   pgtype.Date `json:"biz_date"`
-	KeywordID uuid.UUID   `json:"keyword_id"`
+func (q *Queries) RegisterOfficialKeywordBaseline(ctx context.Context, keywordID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, registerOfficialKeywordBaseline, keywordID)
+	return err
 }
 
-func (q *Queries) UpsertDailyKeywordAssignment(ctx context.Context, arg UpsertDailyKeywordAssignmentParams) (DailyKeywordAssignment, error) {
-	row := q.db.QueryRow(ctx, upsertDailyKeywordAssignment, arg.BizDate, arg.KeywordID)
-	var i DailyKeywordAssignment
+const setOfficialKeywordActive = `-- name: SetOfficialKeywordActive :exec
+UPDATE official_keywords
+SET is_active = $1::boolean
+WHERE id = $2::uuid
+`
+
+type SetOfficialKeywordActiveParams struct {
+	IsActive  bool      `json:"is_active"`
+	KeywordID uuid.UUID `json:"keyword_id"`
+}
+
+func (q *Queries) SetOfficialKeywordActive(ctx context.Context, arg SetOfficialKeywordActiveParams) error {
+	_, err := q.db.Exec(ctx, setOfficialKeywordActive, arg.IsActive, arg.KeywordID)
+	return err
+}
+
+const snapshotOfficialKeywordCatalog = `-- name: SnapshotOfficialKeywordCatalog :exec
+INSERT INTO official_keyword_catalog_baseline (keyword_id, initial_is_active)
+SELECT id, is_active FROM official_keywords
+`
+
+func (q *Queries) SnapshotOfficialKeywordCatalog(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, snapshotOfficialKeywordCatalog)
+	return err
+}
+
+const syncOfficialKeywordRotationQueueTail = `-- name: SyncOfficialKeywordRotationQueueTail :one
+UPDATE official_keyword_rotation_state
+SET next_queue_position = COALESCE(
+      (SELECT MAX(queue_position) + 1 FROM official_keyword_rotation_queue),
+      1
+    ),
+    updated_at = now()
+WHERE singleton = TRUE
+RETURNING singleton, initialized, effective_date, last_planned_date, next_queue_position, updated_at
+`
+
+func (q *Queries) SyncOfficialKeywordRotationQueueTail(ctx context.Context) (OfficialKeywordRotationState, error) {
+	row := q.db.QueryRow(ctx, syncOfficialKeywordRotationQueueTail)
+	var i OfficialKeywordRotationState
 	err := row.Scan(
-		&i.BizDate,
-		&i.KeywordID,
+		&i.Singleton,
+		&i.Initialized,
+		&i.EffectiveDate,
+		&i.LastPlannedDate,
+		&i.NextQueuePosition,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateOfficialKeyword = `-- name: UpdateOfficialKeyword :one
+UPDATE official_keywords
+SET text = $1::varchar,
+    category = $2::keyword_category,
+    display_order = $3::int
+WHERE id = $4::uuid
+RETURNING id, text, category, is_active, display_order, created_at, updated_at
+`
+
+type UpdateOfficialKeywordParams struct {
+	Text         string    `json:"text"`
+	Category     string    `json:"category"`
+	DisplayOrder int32     `json:"display_order"`
+	ID           uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateOfficialKeyword(ctx context.Context, arg UpdateOfficialKeywordParams) (OfficialKeyword, error) {
+	row := q.db.QueryRow(ctx, updateOfficialKeyword,
+		arg.Text,
+		arg.Category,
+		arg.DisplayOrder,
+		arg.ID,
+	)
+	var i OfficialKeyword
+	err := row.Scan(
+		&i.ID,
+		&i.Text,
+		&i.Category,
+		&i.IsActive,
+		&i.DisplayOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -303,53 +810,6 @@ func (q *Queries) UpsertDailyKeywordStat(ctx context.Context, arg UpsertDailyKey
 		&i.ParticipantUserCount,
 		&i.UploadCount,
 		&i.ImageCount,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const upsertOfficialKeyword = `-- name: UpsertOfficialKeyword :one
-INSERT INTO official_keywords (
-  id, text, category, is_active, display_order
-) VALUES (
-  $1::uuid,
-  $2::varchar,
-  $3::keyword_category,
-  $4::boolean,
-  COALESCE($5::int, (SELECT COALESCE(MAX(ok.display_order), 0) + 1 FROM official_keywords ok))
-)
-ON CONFLICT (id) DO UPDATE
-SET text = EXCLUDED.text,
-    category = EXCLUDED.category,
-    is_active = EXCLUDED.is_active,
-    display_order = EXCLUDED.display_order
-RETURNING id, text, category, is_active, display_order, created_at, updated_at
-`
-
-type UpsertOfficialKeywordParams struct {
-	ID           uuid.UUID   `json:"id"`
-	Text         string      `json:"text"`
-	Category     string      `json:"category"`
-	IsActive     bool        `json:"is_active"`
-	DisplayOrder pgtype.Int4 `json:"display_order"`
-}
-
-func (q *Queries) UpsertOfficialKeyword(ctx context.Context, arg UpsertOfficialKeywordParams) (OfficialKeyword, error) {
-	row := q.db.QueryRow(ctx, upsertOfficialKeyword,
-		arg.ID,
-		arg.Text,
-		arg.Category,
-		arg.IsActive,
-		arg.DisplayOrder,
-	)
-	var i OfficialKeyword
-	err := row.Scan(
-		&i.ID,
-		&i.Text,
-		&i.Category,
-		&i.IsActive,
-		&i.DisplayOrder,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

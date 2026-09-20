@@ -37,7 +37,8 @@ func TestOfficialUploadPublishFlow(t *testing.T) {
 	seedUser(t, ctx, pool, userID, "it-user@example.com", "Integration User")
 	seedUser(t, ctx, pool, viewerUserID, "review-viewer@example.com", "Review Viewer")
 	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	seedDailyKeywordAssignment(t, ctx, pool, keywordID, bizDate.AddDate(0, 0, -1))
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
 	uploadSessionSvc, err := publishingapp.NewUploadSessionService(pool, publishingSvc, storage, publishingapp.UploadSessionServiceConfig{
@@ -208,7 +209,8 @@ func TestOfficialUploadPublishFlow_CompleteBatchRejectsMismatchedETag(t *testing
 
 	seedUser(t, ctx, pool, userID, "etag-user@example.com", "ETag User")
 	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	seedDailyKeywordAssignment(t, ctx, pool, keywordID, bizDate.AddDate(0, 0, -1))
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
 	uploadSessionSvc, err := publishingapp.NewUploadSessionService(pool, publishingSvc, storage, publishingapp.UploadSessionServiceConfig{
@@ -285,7 +287,8 @@ func TestOfficialUploadPublishFlow_PresignBatchIsIdempotentForPendingItem(t *tes
 
 	seedUser(t, ctx, pool, userID, "idempotent-user@example.com", "Idempotent User")
 	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "晴朗", bizDate)
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	seedDailyKeywordAssignment(t, ctx, pool, keywordID, bizDate.AddDate(0, 0, -1))
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
 	uploadSessionSvc, err := publishingapp.NewUploadSessionService(pool, publishingSvc, storage, publishingapp.UploadSessionServiceConfig{
@@ -372,7 +375,7 @@ func TestOfficialReadModelLazyAssignmentOnlyForTodayAndYesterday(t *testing.T) {
 	keywordID := uuid.MustParse("52222222-2222-2222-2222-222222222222")
 	seedOfficialKeyword(t, ctx, pool, keywordID, "鏅存湕", futureDate)
 
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 	readSvc := readmodelapp.NewService(
 		readmodelrepo.NewRepository(readmodeldb.New(pool)),
 		platformoss.NewURLResolver(platformoss.URLResolverConfig{

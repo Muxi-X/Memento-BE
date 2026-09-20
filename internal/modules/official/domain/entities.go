@@ -60,3 +60,38 @@ type DailyPrompt struct {
 	ContentSnapshot string
 	SelectedAt      time.Time
 }
+
+type RotationState struct {
+	Initialized       bool
+	EffectiveDate     time.Time
+	LastPlannedDate   time.Time
+	NextQueuePosition int64
+}
+
+type RotationQueueKeyword struct {
+	KeywordID     uuid.UUID
+	QueuePosition int64
+	IsActive      bool
+}
+
+type KeywordChangeAction string
+
+const (
+	KeywordChangeActivate   KeywordChangeAction = "activate"
+	KeywordChangeDeactivate KeywordChangeAction = "deactivate"
+)
+
+type OfficialKeywordChange struct {
+	ID            int64
+	KeywordID     uuid.UUID
+	Action        KeywordChangeAction
+	EffectiveDate time.Time
+	AppliedAt     time.Time
+	CreatedAt     time.Time
+}
+
+type InsertOfficialKeywordChangeParams struct {
+	KeywordID     uuid.UUID
+	Action        KeywordChangeAction
+	EffectiveDate time.Time
+}

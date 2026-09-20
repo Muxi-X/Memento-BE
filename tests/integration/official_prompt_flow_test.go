@@ -39,7 +39,7 @@ func (c *testClock) Set(now time.Time) {
 
 func newOfficialPromptService(pool *pgxpool.Pool, clock *testClock) (*officialapp.PromptService, *officialrepo.Repository) {
 	repo := officialrepo.NewRepository(officialdb.New(pool))
-	catalog := officialapp.NewCatalogService(repo, clock.Now)
+	catalog := officialapp.NewCatalogService(pool, repo, clock.Now)
 	return officialapp.NewPromptService(pool, repo, catalog, clock.Now), repo
 }
 
@@ -333,7 +333,7 @@ func TestOfficialDailyPromptSamplesClockAfterUserLock(t *testing.T) {
 
 func newOfficialPromptServiceWithClock(pool *pgxpool.Pool, now func() time.Time) (*officialapp.PromptService, *officialrepo.Repository) {
 	repo := officialrepo.NewRepository(officialdb.New(pool))
-	catalog := officialapp.NewCatalogService(repo, now)
+	catalog := officialapp.NewCatalogService(pool, repo, now)
 	return officialapp.NewPromptService(pool, repo, catalog, now), repo
 }
 

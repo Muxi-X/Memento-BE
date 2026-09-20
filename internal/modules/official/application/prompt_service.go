@@ -126,8 +126,6 @@ func (s *PromptService) Draw(ctx context.Context, userID uuid.UUID, keywordID uu
 			return err
 		}
 
-		// Sample time only after the user lock. A request waiting across midnight
-		// must validate and save against the post-lock business date.
 		now := s.now()
 		bizDate, resetsAt := businessDateBounds(now)
 		if requestedBizDate != nil && !sameBusinessDate(*requestedBizDate, now) {
@@ -143,7 +141,30 @@ func (s *PromptService) Draw(ctx context.Context, userID uuid.UUID, keywordID uu
 			return err
 		}
 
-		assignment, err := s.catalog.ensureDailyKeywordAssignment(ctx, repo, bizDate)
+		// Keep lock order user -> rotation. The date is sampled again after any
+		// wait for the global rotation lock so a request cannot cross midnight
+		// silently.
+		if err := s.catalog.LockDailyKeywordRotation(ctx, repo); err != nil {
+			return err
+		}
+		now = s.now()
+		postLockBizDate, postLockResetsAt := businessDateBounds(now)
+		if requestedBizDate != nil && !sameBusinessDate(*requestedBizDate, now) {
+			return ErrPromptDateChanged
+		}
+		if !postLockBizDate.Equal(bizDate) {
+			bizDate, resetsAt = postLockBizDate, postLockResetsAt
+			saved, err = repo.GetDailyPrompt(ctx, userID, bizDate)
+			if err == nil {
+				out = promptOutput(saved, resetsAt)
+				return nil
+			}
+			if !errors.Is(err, common.ErrNotFound) {
+				return err
+			}
+		}
+
+		assignment, err := s.catalog.EnsureDailyKeywordAssignmentWithRepository(ctx, repo, bizDate)
 		if err != nil {
 			if errors.Is(err, common.ErrNotFound) {
 				return ErrPromptNotAvailable
@@ -190,8 +211,6 @@ func (s *PromptService) Draw(ctx context.Context, userID uuid.UUID, keywordID uu
 			return err
 		}
 
-		// The unique key won even though this path holds the user lock. Return the
-		// actual persisted winner instead of the candidate that was not saved.
 		saved, err = repo.GetDailyPrompt(ctx, userID, bizDate)
 		if err != nil {
 			return err

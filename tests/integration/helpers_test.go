@@ -180,7 +180,7 @@ func assertJobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want 
 func createVisibleOfficialUploadForTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, storage *memoryObjectStorage, ownerUserID, keywordID uuid.UUID, bizDate, now time.Time) uuid.UUID {
 	t.Helper()
 
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 	publishingSvc := publishingapp.NewService(pool, officialCatalog, func() time.Time { return now })
 	uploadSessionSvc, err := publishingapp.NewUploadSessionService(pool, publishingSvc, storage, publishingapp.UploadSessionServiceConfig{
 		Bucket:           "test-bucket",

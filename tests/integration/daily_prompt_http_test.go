@@ -49,7 +49,7 @@ func newHTTPTestEnv(t *testing.T, pool *pgxpool.Pool, now time.Time) *httpTestEn
 	t.Helper()
 	clock := newTestClock(now)
 	officialRepo := officialrepo.NewRepository(officialdb.New(pool))
-	catalog := officialapp.NewCatalogService(officialRepo, clock.Now)
+	catalog := officialapp.NewCatalogService(pool, officialRepo, clock.Now)
 	analyticsRepo := analyticsrepo.NewRepository(analyticsdb.New(pool))
 	return &httpTestEnv{
 		pool:      pool,

@@ -12,24 +12,43 @@ import (
 )
 
 type Querier interface {
-	DeactivateOfficialKeyword(ctx context.Context, id uuid.UUID) (OfficialKeyword, error)
+	AdvanceOfficialKeywordRotationDate(ctx context.Context, bizDate pgtype.Date) (OfficialKeywordRotationState, error)
 	// Prompts
 	DrawRandomPrompt(ctx context.Context, arg DrawRandomPromptParams) (OfficialKeywordPrompt, error)
 	GetDailyKeywordAssignment(ctx context.Context, bizDate pgtype.Date) (DailyKeywordAssignment, error)
 	GetDailyKeywordStat(ctx context.Context, bizDate pgtype.Date) (DailyKeywordStat, error)
 	GetDailyPrompt(ctx context.Context, arg GetDailyPromptParams) (UserDailyPrompt, error)
 	GetKeywordForDateWithStats(ctx context.Context, bizDate pgtype.Date) (GetKeywordForDateWithStatsRow, error)
-	// Official keywords + assignments + daily stats
+	GetLastDailyKeywordAssignmentBefore(ctx context.Context, bizDate pgtype.Date) (DailyKeywordAssignment, error)
+	// Official keywords + assignments + daily stats + rotation
 	GetOfficialKeywordByID(ctx context.Context, id uuid.UUID) (OfficialKeyword, error)
 	GetOfficialKeywordByText(ctx context.Context, text string) (OfficialKeyword, error)
+	HasDailyKeywordAssignmentOnOrAfter(ctx context.Context, bizDate pgtype.Date) (bool, error)
+	HasOfficialKeywordCatalogMismatch(ctx context.Context) (bool, error)
+	InitializeOfficialKeywordRotation(ctx context.Context, effectiveDate pgtype.Date) (OfficialKeywordRotationState, error)
+	InsertDailyKeywordAssignment(ctx context.Context, arg InsertDailyKeywordAssignmentParams) (DailyKeywordAssignment, error)
 	InsertDailyPrompt(ctx context.Context, arg InsertDailyPromptParams) (UserDailyPrompt, error)
+	InsertOfficialKeyword(ctx context.Context, arg InsertOfficialKeywordParams) (OfficialKeyword, error)
+	InsertOfficialKeywordChange(ctx context.Context, arg InsertOfficialKeywordChangeParams) (OfficialKeywordChange, error)
+	InsertOfficialKeywordRotationQueueItem(ctx context.Context, arg InsertOfficialKeywordRotationQueueItemParams) error
 	ListActiveOfficialKeywords(ctx context.Context) ([]OfficialKeyword, error)
+	ListDailyKeywordAssignmentsBetween(ctx context.Context, arg ListDailyKeywordAssignmentsBetweenParams) ([]DailyKeywordAssignment, error)
+	ListOfficialKeywordRotationQueue(ctx context.Context) ([]ListOfficialKeywordRotationQueueRow, error)
+	ListOfficialKeywords(ctx context.Context) ([]OfficialKeyword, error)
+	ListPendingOfficialKeywordChangesThrough(ctx context.Context, bizDate pgtype.Date) ([]OfficialKeywordChange, error)
 	ListPromptsByKeyword(ctx context.Context, keywordID uuid.UUID) ([]OfficialKeywordPrompt, error)
+	LockOfficialKeywordRotationState(ctx context.Context) (OfficialKeywordRotationState, error)
 	LockUser(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	MarkOfficialKeywordChangeApplied(ctx context.Context, id int64) error
+	MoveOfficialKeywordToRotationTail(ctx context.Context, keywordID uuid.UUID) (MoveOfficialKeywordToRotationTailRow, error)
+	MoveOrInsertOfficialKeywordAtRotationTail(ctx context.Context, keywordID uuid.UUID) (MoveOrInsertOfficialKeywordAtRotationTailRow, error)
 	RecomputeDailyKeywordStatsFromUploads(ctx context.Context, bizDate pgtype.Date) (DailyKeywordStat, error)
-	UpsertDailyKeywordAssignment(ctx context.Context, arg UpsertDailyKeywordAssignmentParams) (DailyKeywordAssignment, error)
+	RegisterOfficialKeywordBaseline(ctx context.Context, keywordID uuid.UUID) error
+	SetOfficialKeywordActive(ctx context.Context, arg SetOfficialKeywordActiveParams) error
+	SnapshotOfficialKeywordCatalog(ctx context.Context) error
+	SyncOfficialKeywordRotationQueueTail(ctx context.Context) (OfficialKeywordRotationState, error)
+	UpdateOfficialKeyword(ctx context.Context, arg UpdateOfficialKeywordParams) (OfficialKeyword, error)
 	UpsertDailyKeywordStat(ctx context.Context, arg UpsertDailyKeywordStatParams) (DailyKeywordStat, error)
-	UpsertOfficialKeyword(ctx context.Context, arg UpsertOfficialKeywordParams) (OfficialKeyword, error)
 	UpsertPrompt(ctx context.Context, arg UpsertPromptParams) (OfficialKeywordPrompt, error)
 }
 
