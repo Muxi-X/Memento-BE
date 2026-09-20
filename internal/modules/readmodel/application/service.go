@@ -74,7 +74,7 @@ func (s *Service) GetOfficialHome(ctx context.Context, baseDate *time.Time) (*Of
 		target = common.NormalizeBizDate(*baseDate)
 	}
 	if s.officialCatalog != nil {
-		for _, day := range []time.Time{target, target.AddDate(0, 0, -1)} {
+		for _, day := range []time.Time{target.AddDate(0, 0, -1), target} {
 			if !s.shouldLazyAssignOfficialDate(day) {
 				continue
 			}

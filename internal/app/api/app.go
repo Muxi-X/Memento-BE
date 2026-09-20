@@ -150,7 +150,10 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 
 	officialModuleRepo := officialrepo.NewRepository(officialdb.New(pool))
 	readmodelModuleRepo := readmodelrepo.NewRepository(readmodeldb.New(pool))
-	officialCatalog := officialapp.NewCatalogService(officialModuleRepo, nil)
+	officialCatalog := officialapp.NewCatalogService(pool, officialModuleRepo, nil)
+	if err := officialCatalog.EnsureRotationInitialized(ctx); err != nil {
+		return err
+	}
 	officialPromptSvc := officialapp.NewPromptService(pool, officialModuleRepo, officialCatalog, nil)
 	analyticsModuleRepo := analyticsrepo.NewRepository(analyticsdb.New(pool))
 	analyticsSvc := analyticsapp.NewService(pool, analyticsModuleRepo, nil)

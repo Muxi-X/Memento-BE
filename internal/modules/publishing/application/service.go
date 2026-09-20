@@ -11,6 +11,7 @@ import (
 
 	customrepo "cixing/internal/modules/customkeywords/infra/db/repo"
 	officialapp "cixing/internal/modules/official/application"
+	dofficial "cixing/internal/modules/official/domain"
 	officialdb "cixing/internal/modules/official/infra/db/gen"
 	officialrepo "cixing/internal/modules/official/infra/db/repo"
 	dpub "cixing/internal/modules/publishing/domain"
@@ -72,7 +73,27 @@ func (s *Service) CreateOfficialSession(ctx context.Context, in CreateOfficialSe
 
 	repo := s.repo(publishingdb.New(s.db))
 	bizDate := common.NormalizeBizDate(in.BizDate)
-	assignment, err := s.dailyKeywordAssignment(ctx, repo, bizDate)
+	today := common.NormalizeBizDate(s.now())
+	if bizDate.After(today) {
+		return nil, ErrInvalidUploadPublishInput
+	}
+
+	var assignment dpub.DailyKeywordAssignment
+	var err error
+	if bizDate.Before(today) {
+		assignment, err = repo.GetDailyKeywordAssignment(ctx, bizDate)
+	} else {
+		assignment, err = s.dailyKeywordAssignment(ctx, repo, nil, bizDate, func(lockedNow time.Time) error {
+			lockedToday := common.NormalizeBizDate(lockedNow)
+			if bizDate.After(lockedToday) {
+				return ErrInvalidUploadPublishInput
+			}
+			if bizDate.Before(lockedToday) {
+				return common.ErrNotFound
+			}
+			return nil
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +165,7 @@ func (s *Service) CommitSession(ctx context.Context, in CommitSessionInput) (*Co
 			if agg.Session.BizDate == nil {
 				return dpub.ErrInvalidContext
 			}
-			assignment, err := s.dailyKeywordAssignment(ctx, repo, *agg.Session.BizDate)
+			assignment, err := repo.GetDailyKeywordAssignment(ctx, *agg.Session.BizDate)
 			if err != nil {
 				return err
 			}
@@ -291,10 +312,27 @@ func normalizeOptionalText(v *string) *string {
 	return &s
 }
 
-func (s *Service) dailyKeywordAssignment(ctx context.Context, repo *pgrepo.Repository, bizDate time.Time) (dpub.DailyKeywordAssignment, error) {
+func (s *Service) dailyKeywordAssignment(
+	ctx context.Context,
+	repo *pgrepo.Repository,
+	officialRepo dofficial.Repository,
+	bizDate time.Time,
+	validate func(time.Time) error,
+) (dpub.DailyKeywordAssignment, error) {
 	normalized := common.NormalizeBizDate(bizDate)
 	if s.officialCatalog != nil {
-		assignment, err := s.officialCatalog.EnsureDailyKeywordAssignment(ctx, normalized)
+		var (
+			assignment dofficial.DailyKeywordAssignment
+			err        error
+		)
+		switch {
+		case officialRepo != nil:
+			assignment, err = s.officialCatalog.EnsureDailyKeywordAssignmentWithRepository(ctx, officialRepo, normalized)
+		case validate != nil:
+			assignment, err = s.officialCatalog.EnsureDailyKeywordAssignmentWithValidator(ctx, normalized, validate)
+		default:
+			assignment, err = s.officialCatalog.EnsureDailyKeywordAssignment(ctx, normalized)
+		}
 		if err != nil {
 			return dpub.DailyKeywordAssignment{}, err
 		}

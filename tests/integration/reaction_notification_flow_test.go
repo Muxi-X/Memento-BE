@@ -36,7 +36,7 @@ func TestReactionNotificationFlow(t *testing.T) {
 	seedUser(t, ctx, pool, authorID, "author@example.com", "Author")
 	seedUser(t, ctx, pool, actorID, "actor@example.com", "Actor")
 	seedOfficialKeywordAsDaily(t, ctx, pool, keywordID, "keyword", bizDate)
-	officialCatalog := officialapp.NewCatalogService(officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
+	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 
 	resolver := platformoss.NewURLResolver(platformoss.URLResolverConfig{
 		PublicBaseURL: "https://cdn.test.local",

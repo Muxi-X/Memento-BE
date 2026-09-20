@@ -1,4 +1,4 @@
-﻿openapi: 3.0.3
+openapi: 3.0.3
 info:
   title: cixing api
   version: 1.0.0
@@ -662,6 +662,10 @@ components:
           type: string
           format: date
           nullable: true
+          description: >
+            Official publish date in Asia/Shanghai. The server accepts today,
+            past dates with an existing saved schedule, and rejects missing past
+            schedules and all future dates.
         custom_keyword_id:
           type: string
           format: uuid
@@ -2193,6 +2197,12 @@ paths:
     post:
       tags: [UploadSessions]
       operationId: createUploadPublishSession
+      description: >
+        For official_today, the server compares context.biz_date with the current
+        Asia/Shanghai business date. Today is allowed and may ensure today's
+        schedule. A past date is allowed only when its schedule already exists.
+        A missing past schedule returns 404 publish.not_found. Future dates return
+        400 publish.invalid_input even if a schedule unexpectedly exists.
       security:
         - bearerAuth: []
       parameters:
@@ -2322,6 +2332,9 @@ paths:
     post:
       tags: [UploadSessions]
       operationId: commitUploadPublishSession
+      description: >
+        Commit reads the schedule already bound to the session's original
+        biz_date. It never generates or backfills a daily keyword assignment.
       security:
         - bearerAuth: []
       parameters:

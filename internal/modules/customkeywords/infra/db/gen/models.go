@@ -142,6 +142,20 @@ type OfficialKeyword struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OfficialKeywordCatalogBaseline struct {
+	KeywordID       uuid.UUID `json:"keyword_id"`
+	InitialIsActive bool      `json:"initial_is_active"`
+}
+
+type OfficialKeywordChange struct {
+	ID            int64              `json:"id"`
+	KeywordID     uuid.UUID          `json:"keyword_id"`
+	Action        string             `json:"action"`
+	EffectiveDate pgtype.Date        `json:"effective_date"`
+	AppliedAt     pgtype.Timestamptz `json:"applied_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type OfficialKeywordPrompt struct {
 	ID           uuid.UUID          `json:"id"`
 	KeywordID    uuid.UUID          `json:"keyword_id"`
@@ -151,6 +165,21 @@ type OfficialKeywordPrompt struct {
 	IsActive     bool               `json:"is_active"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OfficialKeywordRotationQueue struct {
+	KeywordID     uuid.UUID          `json:"keyword_id"`
+	QueuePosition int64              `json:"queue_position"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type OfficialKeywordRotationState struct {
+	Singleton         bool               `json:"singleton"`
+	Initialized       bool               `json:"initialized"`
+	EffectiveDate     pgtype.Date        `json:"effective_date"`
+	LastPlannedDate   pgtype.Date        `json:"last_planned_date"`
+	NextQueuePosition int64              `json:"next_queue_position"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type PublishSession struct {
