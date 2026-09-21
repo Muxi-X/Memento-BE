@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"cixing/internal/modules/readmodel/infra/db/repo"
+	"cixing/internal/shared/common"
 )
 
 const (
@@ -67,8 +68,10 @@ type PublicUploadDetailOutput struct {
 }
 
 type PublicUploadListOutput struct {
-	Items []PublicUploadCardOutput
-	Seed  *float64
+	Items      []PublicUploadCardOutput
+	Seed       *float64
+	NextCursor *string
+	HasMore    bool
 }
 
 type ReviewUploadCardOutput struct {
@@ -88,7 +91,12 @@ type ReviewUploadDetailOutput struct {
 	Images []WorkImageOutput
 }
 
-func (s *Service) ListOfficialDateUploads(ctx context.Context, bizDate time.Time, sort string, limit int, seed *float64, includeReactionCounts bool, viewerID *uuid.UUID) (*PublicUploadListOutput, error) {
+func (s *Service) ListOfficialDateUploads(ctx context.Context, bizDate time.Time, options PublicUploadListOptions, viewerID *uuid.UUID) (*PublicUploadListOutput, error) {
+	bizDate = common.NormalizeBizDate(bizDate)
+	page, err := resolvePublicUploadPage(dateScope, bizDate.Format("2006-01-02"), options, s.now)
+	if err != nil {
+		return nil, err
+	}
 	if s.officialCatalog != nil && s.shouldLazyAssignOfficialDate(bizDate) {
 		if _, err := s.officialCatalog.EnsureDailyKeywordAssignment(ctx, bizDate); err != nil {
 			return nil, err
@@ -98,7 +106,9 @@ func (s *Service) ListOfficialDateUploads(ctx context.Context, bizDate time.Time
 			return nil, err
 		}
 	}
-	return s.listPublicUploadsByDate(ctx, bizDate, sort, limit, seed, includeReactionCounts, viewerID)
+	return s.loadPublicUploadPage(ctx, page, options.IncludeReactionCounts, viewerID, func(p repo.PublicUploadPageParams) ([]repo.PublicUploadPageRow, error) {
+		return s.repo.ListPublicUploadsByDatePage(ctx, bizDate, p)
+	})
 }
 
 func (s *Service) GetOfficialUpload(ctx context.Context, uploadID uuid.UUID, includeReactionCounts bool, viewerID *uuid.UUID) (*PublicUploadDetailOutput, error) {
@@ -127,55 +137,45 @@ func (s *Service) GetOfficialUpload(ctx context.Context, uploadID uuid.UUID, inc
 	return detail, nil
 }
 
-func (s *Service) ListReviewAllUploadsByKeyword(ctx context.Context, userID, keywordID uuid.UUID, sort string, limit int, seed *float64, includeReactionCounts bool) (*PublicUploadListOutput, error) {
+func (s *Service) ListReviewAllUploadsByKeyword(ctx context.Context, userID, keywordID uuid.UUID, options PublicUploadListOptions) (*PublicUploadListOutput, error) {
+	page, err := resolvePublicUploadPage(keywordScope, keywordID.String(), options, s.now)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := s.repo.GetOfficialKeyword(ctx, keywordID); err != nil {
 		return nil, err
 	}
-	return s.listPublicUploadsByKeyword(ctx, keywordID, sort, limit, seed, includeReactionCounts, &userID)
+	return s.loadPublicUploadPage(ctx, page, options.IncludeReactionCounts, &userID, func(p repo.PublicUploadPageParams) ([]repo.PublicUploadPageRow, error) {
+		return s.repo.ListPublicUploadsByKeywordPage(ctx, keywordID, p)
+	})
 }
 
-func (s *Service) listPublicUploadsByDate(ctx context.Context, bizDate time.Time, sort string, limit int, seed *float64, includeReactionCounts bool, viewerID *uuid.UUID) (*PublicUploadListOutput, error) {
-	limit32 := clampLimit(limit, 20, 50)
-	sort = normalizePublicSort(sort)
-
-	var (
-		rows     []repo.UploadCard
-		err      error
-		usedSeed *float64
-	)
-	if sort == sortRandom {
-		v := normalizeSeed(s.now, seed)
-		rows, err = s.repo.ListPublicUploadsByDateRandom(ctx, bizDate, v, limit32)
-		usedSeed = &v
-	} else {
-		rows, err = s.repo.ListPublicUploadsByDateLatest(ctx, bizDate, limit32)
+func (s *Service) loadPublicUploadPage(ctx context.Context, page publicUploadPage, counts bool, viewer *uuid.UUID, read func(repo.PublicUploadPageParams) ([]repo.PublicUploadPageRow, error)) (*PublicUploadListOutput, error) {
+	if page.query.CutoffAt.IsZero() {
+		cutoff, err := s.repo.PublicUploadsCutoff(ctx)
+		if err != nil {
+			return nil, err
+		}
+		page.query.CutoffAt = cutoff
 	}
+	rows, err := read(page.query)
 	if err != nil {
 		return nil, err
 	}
-	return s.publicUploadList(ctx, rows, includeReactionCounts, viewerID, usedSeed)
-}
-
-func (s *Service) listPublicUploadsByKeyword(ctx context.Context, keywordID uuid.UUID, sort string, limit int, seed *float64, includeReactionCounts bool, viewerID *uuid.UUID) (*PublicUploadListOutput, error) {
-	limit32 := clampLimit(limit, 20, 50)
-	sort = normalizePublicSort(sort)
-
-	var (
-		rows     []repo.UploadCard
-		err      error
-		usedSeed *float64
-	)
-	if sort == sortRandom {
-		v := normalizeSeed(s.now, seed)
-		rows, err = s.repo.ListPublicUploadsByKeywordRandom(ctx, keywordID, v, limit32)
-		usedSeed = &v
-	} else {
-		rows, err = s.repo.ListPublicUploadsByKeywordLatest(ctx, keywordID, limit32)
-	}
+	cards, next, more, err := page.finish(rows)
 	if err != nil {
 		return nil, err
 	}
-	return s.publicUploadList(ctx, rows, includeReactionCounts, viewerID, usedSeed)
+	var seed *float64
+	if page.query.Sort == sortRandom {
+		seed = &page.query.Seed
+	}
+	out, err := s.publicUploadList(ctx, cards, counts, viewer, seed)
+	if err != nil {
+		return nil, err
+	}
+	out.NextCursor, out.HasMore = next, more
+	return out, nil
 }
 
 func (s *Service) publicUploadList(ctx context.Context, rows []repo.UploadCard, includeReactionCounts bool, viewerID *uuid.UUID, seed *float64) (*PublicUploadListOutput, error) {
@@ -312,13 +312,6 @@ func clampLimit(v, defaultValue, maxValue int) int32 {
 		return int32(maxValue)
 	}
 	return int32(v)
-}
-
-func normalizePublicSort(sort string) string {
-	if sort == sortRandom {
-		return sortRandom
-	}
-	return sortLatest
 }
 
 func normalizeSeed(now func() time.Time, seed *float64) float64 {

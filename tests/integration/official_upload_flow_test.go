@@ -51,7 +51,7 @@ func TestOfficialUploadPublishFlow(t *testing.T) {
 		t.Fatalf("NewUploadSessionService() error = %v", err)
 	}
 	readSvc := readmodelapp.NewService(
-		readmodelrepo.NewRepository(readmodeldb.New(pool)),
+		readmodelrepo.NewRepository(readmodeldb.New(pool), pool),
 		platformoss.NewURLResolver(platformoss.URLResolverConfig{
 			PublicBaseURL: "https://cdn.test.local",
 		}),
@@ -120,7 +120,7 @@ func TestOfficialUploadPublishFlow(t *testing.T) {
 		t.Fatalf("CompleteBatch() status = %q, want created", completed.Status)
 	}
 
-	beforeJobs, err := readSvc.ListOfficialDateUploads(ctx, bizDate, "latest", 20, nil, true, nil)
+	beforeJobs, err := readSvc.ListOfficialDateUploads(ctx, bizDate, readmodelapp.PublicUploadListOptions{IncludeReactionCounts: true}, nil)
 	if err != nil {
 		t.Fatalf("ListOfficialDateUploads(before jobs) error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestOfficialUploadPublishFlow(t *testing.T) {
 	}
 	assertJobCount(t, ctx, pool, 0)
 
-	afterJobs, err := readSvc.ListOfficialDateUploads(ctx, bizDate, "latest", 20, nil, true, &userID)
+	afterJobs, err := readSvc.ListOfficialDateUploads(ctx, bizDate, readmodelapp.PublicUploadListOptions{IncludeReactionCounts: true}, &userID)
 	if err != nil {
 		t.Fatalf("ListOfficialDateUploads(after jobs) error = %v", err)
 	}
@@ -377,7 +377,7 @@ func TestOfficialReadModelLazyAssignmentOnlyForTodayAndYesterday(t *testing.T) {
 
 	officialCatalog := officialapp.NewCatalogService(pool, officialrepo.NewRepository(officialdb.New(pool)), func() time.Time { return now })
 	readSvc := readmodelapp.NewService(
-		readmodelrepo.NewRepository(readmodeldb.New(pool)),
+		readmodelrepo.NewRepository(readmodeldb.New(pool), pool),
 		platformoss.NewURLResolver(platformoss.URLResolverConfig{
 			PublicBaseURL: "https://cdn.test.local",
 		}),
@@ -388,7 +388,7 @@ func TestOfficialReadModelLazyAssignmentOnlyForTodayAndYesterday(t *testing.T) {
 	if _, err := readSvc.GetOfficialHome(ctx, &futureDate); !errors.Is(err, common.ErrNotFound) {
 		t.Fatalf("GetOfficialHome(future) error = %v, want not found", err)
 	}
-	if _, err := readSvc.ListOfficialDateUploads(ctx, futureDate, "latest", 20, nil, false, nil); !errors.Is(err, common.ErrNotFound) {
+	if _, err := readSvc.ListOfficialDateUploads(ctx, futureDate, readmodelapp.PublicUploadListOptions{}, nil); !errors.Is(err, common.ErrNotFound) {
 		t.Fatalf("ListOfficialDateUploads(future) error = %v, want not found", err)
 	}
 

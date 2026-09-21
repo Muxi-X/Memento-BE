@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	readmodelapp "cixing/internal/modules/readmodel/application"
 	"cixing/internal/transport/http/server/response"
 	v1gen "cixing/internal/transport/http/v1/gen"
 )
@@ -41,10 +42,10 @@ func (h *Handler) ListOfficialDateUploads(c *gin.Context, bizDate openapi_types.
 	out, err := h.ReadModel.ListOfficialDateUploads(
 		c.Request.Context(),
 		bizDate.Time,
-		stringValue(params.Sort),
-		ptrIntValue(params.Limit),
-		params.Seed,
-		boolValue(params.IncludeReactionCounts),
+		readmodelapp.PublicUploadListOptions{
+			Sort: stringPointer(params.Sort), Limit: params.Limit, Seed: params.Seed,
+			Cursor: params.Cursor, IncludeReactionCounts: boolValue(params.IncludeReactionCounts),
+		},
 		viewer,
 	)
 	if err != nil {

@@ -175,6 +175,17 @@ func (q *Queries) GetPublicUploadCard(ctx context.Context, id uuid.UUID) (GetPub
 	return i, err
 }
 
+const getPublicUploadsCutoff = `-- name: GetPublicUploadsCutoff :one
+SELECT clock_timestamp()::timestamptz AS cutoff_at
+`
+
+func (q *Queries) GetPublicUploadsCutoff(ctx context.Context) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, getPublicUploadsCutoff)
+	var cutoff_at pgtype.Timestamptz
+	err := row.Scan(&cutoff_at)
+	return cutoff_at, err
+}
+
 const listMyReactionTypesByUploadIDs = `-- name: ListMyReactionTypesByUploadIDs :many
 SELECT
   upload_id,
@@ -388,12 +399,18 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -402,14 +419,16 @@ JOIN media_assets cover_asset
 WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
-  AND wu.biz_date = $1
+  AND wu.biz_date = $1::date
+  AND wu.published_at <= $2::timestamptz
 ORDER BY wu.published_at DESC, wu.id DESC
-LIMIT $2
+LIMIT $3::int
 `
 
 type ListPublicUploadsByDateLatestParams struct {
-	BizDate pgtype.Date `json:"biz_date"`
-	Limit   int32       `json:"limit"`
+	BizDate    pgtype.Date        `json:"biz_date"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	LimitCount int32              `json:"limit_count"`
 }
 
 type ListPublicUploadsByDateLatestRow struct {
@@ -425,10 +444,15 @@ type ListPublicUploadsByDateLatestRow struct {
 	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
 	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
 }
 
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
 func (q *Queries) ListPublicUploadsByDateLatest(ctx context.Context, arg ListPublicUploadsByDateLatestParams) ([]ListPublicUploadsByDateLatestRow, error) {
-	rows, err := q.db.Query(ctx, listPublicUploadsByDateLatest, arg.BizDate, arg.Limit)
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateLatest, arg.BizDate, arg.CutoffAt, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -449,6 +473,8 @@ func (q *Queries) ListPublicUploadsByDateLatest(ctx context.Context, arg ListPub
 			&i.ReactionInspiredCount,
 			&i.ReactionResonatedCount,
 			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
 		); err != nil {
 			return nil, err
 		}
@@ -460,7 +486,7 @@ func (q *Queries) ListPublicUploadsByDateLatest(ctx context.Context, arg ListPub
 	return items, nil
 }
 
-const listPublicUploadsByDateRandom = `-- name: ListPublicUploadsByDateRandom :many
+const listPublicUploadsByDateLatestAfter = `-- name: ListPublicUploadsByDateLatestAfter :many
 SELECT
   wu.id,
   wu.biz_date,
@@ -473,12 +499,18 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -488,20 +520,21 @@ WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
   AND wu.biz_date = $1::date
-ORDER BY
-  CASE WHEN wu.rand_key < $2::double precision THEN 1 ELSE 0 END ASC,
-  wu.rand_key ASC,
-  wu.id ASC
-LIMIT $3::int
+  AND wu.published_at <= $2::timestamptz
+  AND (wu.published_at, wu.id) < ($3::timestamptz, $4::uuid)
+ORDER BY wu.published_at DESC, wu.id DESC
+LIMIT $5::int
 `
 
-type ListPublicUploadsByDateRandomParams struct {
-	BizDate    pgtype.Date `json:"biz_date"`
-	Seed       float64     `json:"seed"`
-	LimitCount int32       `json:"limit_count"`
+type ListPublicUploadsByDateLatestAfterParams struct {
+	BizDate         pgtype.Date        `json:"biz_date"`
+	CutoffAt        pgtype.Timestamptz `json:"cutoff_at"`
+	LastPublishedAt pgtype.Timestamptz `json:"last_published_at"`
+	LastID          uuid.UUID          `json:"last_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
-type ListPublicUploadsByDateRandomRow struct {
+type ListPublicUploadsByDateLatestAfterRow struct {
 	ID                     uuid.UUID          `json:"id"`
 	BizDate                pgtype.Date        `json:"biz_date"`
 	KeywordID              pgtype.UUID        `json:"keyword_id"`
@@ -514,17 +547,28 @@ type ListPublicUploadsByDateRandomRow struct {
 	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
 	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
 }
 
-func (q *Queries) ListPublicUploadsByDateRandom(ctx context.Context, arg ListPublicUploadsByDateRandomParams) ([]ListPublicUploadsByDateRandomRow, error) {
-	rows, err := q.db.Query(ctx, listPublicUploadsByDateRandom, arg.BizDate, arg.Seed, arg.LimitCount)
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByDateLatestAfter(ctx context.Context, arg ListPublicUploadsByDateLatestAfterParams) ([]ListPublicUploadsByDateLatestAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateLatestAfter,
+		arg.BizDate,
+		arg.CutoffAt,
+		arg.LastPublishedAt,
+		arg.LastID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListPublicUploadsByDateRandomRow{}
+	items := []ListPublicUploadsByDateLatestAfterRow{}
 	for rows.Next() {
-		var i ListPublicUploadsByDateRandomRow
+		var i ListPublicUploadsByDateLatestAfterRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.BizDate,
@@ -538,6 +582,446 @@ func (q *Queries) ListPublicUploadsByDateRandom(ctx context.Context, arg ListPub
 			&i.ReactionInspiredCount,
 			&i.ReactionResonatedCount,
 			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByDateRandomHigh = `-- name: ListPublicUploadsByDateRandomHigh :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = $1::date
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key >= $3::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $4::int
+`
+
+type ListPublicUploadsByDateRandomHighParams struct {
+	BizDate    pgtype.Date        `json:"biz_date"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	Seed       float64            `json:"seed"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByDateRandomHighRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByDateRandomHigh(ctx context.Context, arg ListPublicUploadsByDateRandomHighParams) ([]ListPublicUploadsByDateRandomHighRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateRandomHigh,
+		arg.BizDate,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByDateRandomHighRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByDateRandomHighRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByDateRandomHighAfter = `-- name: ListPublicUploadsByDateRandomHighAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = $1::date
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key >= $3::double precision
+  AND (wu.rand_key, wu.id) > ($4::double precision, $5::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $6::int
+`
+
+type ListPublicUploadsByDateRandomHighAfterParams struct {
+	BizDate     pgtype.Date        `json:"biz_date"`
+	CutoffAt    pgtype.Timestamptz `json:"cutoff_at"`
+	Seed        float64            `json:"seed"`
+	LastRandKey float64            `json:"last_rand_key"`
+	LastID      uuid.UUID          `json:"last_id"`
+	LimitCount  int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByDateRandomHighAfterRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByDateRandomHighAfter(ctx context.Context, arg ListPublicUploadsByDateRandomHighAfterParams) ([]ListPublicUploadsByDateRandomHighAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateRandomHighAfter,
+		arg.BizDate,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LastRandKey,
+		arg.LastID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByDateRandomHighAfterRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByDateRandomHighAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByDateRandomLow = `-- name: ListPublicUploadsByDateRandomLow :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = $1::date
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key < $3::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $4::int
+`
+
+type ListPublicUploadsByDateRandomLowParams struct {
+	BizDate    pgtype.Date        `json:"biz_date"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	Seed       float64            `json:"seed"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByDateRandomLowRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByDateRandomLow(ctx context.Context, arg ListPublicUploadsByDateRandomLowParams) ([]ListPublicUploadsByDateRandomLowRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateRandomLow,
+		arg.BizDate,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByDateRandomLowRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByDateRandomLowRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByDateRandomLowAfter = `-- name: ListPublicUploadsByDateRandomLowAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = $1::date
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key < $3::double precision
+  AND (wu.rand_key, wu.id) > ($4::double precision, $5::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $6::int
+`
+
+type ListPublicUploadsByDateRandomLowAfterParams struct {
+	BizDate     pgtype.Date        `json:"biz_date"`
+	CutoffAt    pgtype.Timestamptz `json:"cutoff_at"`
+	Seed        float64            `json:"seed"`
+	LastRandKey float64            `json:"last_rand_key"`
+	LastID      uuid.UUID          `json:"last_id"`
+	LimitCount  int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByDateRandomLowAfterRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByDateRandomLowAfter(ctx context.Context, arg ListPublicUploadsByDateRandomLowAfterParams) ([]ListPublicUploadsByDateRandomLowAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByDateRandomLowAfter,
+		arg.BizDate,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LastRandKey,
+		arg.LastID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByDateRandomLowAfterRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByDateRandomLowAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
 		); err != nil {
 			return nil, err
 		}
@@ -562,12 +1046,18 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -576,14 +1066,16 @@ JOIN media_assets cover_asset
 WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
-  AND wu.official_keyword_id = $1
+  AND wu.official_keyword_id = $1::uuid
+  AND wu.published_at <= $2::timestamptz
 ORDER BY wu.published_at DESC, wu.id DESC
-LIMIT $2
+LIMIT $3::int
 `
 
 type ListPublicUploadsByKeywordLatestParams struct {
-	OfficialKeywordID pgtype.UUID `json:"official_keyword_id"`
-	Limit             int32       `json:"limit"`
+	KeywordID  uuid.UUID          `json:"keyword_id"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	LimitCount int32              `json:"limit_count"`
 }
 
 type ListPublicUploadsByKeywordLatestRow struct {
@@ -599,10 +1091,15 @@ type ListPublicUploadsByKeywordLatestRow struct {
 	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
 	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
 }
 
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
 func (q *Queries) ListPublicUploadsByKeywordLatest(ctx context.Context, arg ListPublicUploadsByKeywordLatestParams) ([]ListPublicUploadsByKeywordLatestRow, error) {
-	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordLatest, arg.OfficialKeywordID, arg.Limit)
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordLatest, arg.KeywordID, arg.CutoffAt, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -623,6 +1120,8 @@ func (q *Queries) ListPublicUploadsByKeywordLatest(ctx context.Context, arg List
 			&i.ReactionInspiredCount,
 			&i.ReactionResonatedCount,
 			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
 		); err != nil {
 			return nil, err
 		}
@@ -634,7 +1133,7 @@ func (q *Queries) ListPublicUploadsByKeywordLatest(ctx context.Context, arg List
 	return items, nil
 }
 
-const listPublicUploadsByKeywordRandom = `-- name: ListPublicUploadsByKeywordRandom :many
+const listPublicUploadsByKeywordLatestAfter = `-- name: ListPublicUploadsByKeywordLatestAfter :many
 SELECT
   wu.id,
   wu.biz_date,
@@ -647,12 +1146,18 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -662,20 +1167,21 @@ WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
   AND wu.official_keyword_id = $1::uuid
-ORDER BY
-  CASE WHEN wu.rand_key < $2::double precision THEN 1 ELSE 0 END ASC,
-  wu.rand_key ASC,
-  wu.id ASC
-LIMIT $3::int
+  AND wu.published_at <= $2::timestamptz
+  AND (wu.published_at, wu.id) < ($3::timestamptz, $4::uuid)
+ORDER BY wu.published_at DESC, wu.id DESC
+LIMIT $5::int
 `
 
-type ListPublicUploadsByKeywordRandomParams struct {
-	KeywordID  uuid.UUID `json:"keyword_id"`
-	Seed       float64   `json:"seed"`
-	LimitCount int32     `json:"limit_count"`
+type ListPublicUploadsByKeywordLatestAfterParams struct {
+	KeywordID       uuid.UUID          `json:"keyword_id"`
+	CutoffAt        pgtype.Timestamptz `json:"cutoff_at"`
+	LastPublishedAt pgtype.Timestamptz `json:"last_published_at"`
+	LastID          uuid.UUID          `json:"last_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
-type ListPublicUploadsByKeywordRandomRow struct {
+type ListPublicUploadsByKeywordLatestAfterRow struct {
 	ID                     uuid.UUID          `json:"id"`
 	BizDate                pgtype.Date        `json:"biz_date"`
 	KeywordID              pgtype.UUID        `json:"keyword_id"`
@@ -688,17 +1194,28 @@ type ListPublicUploadsByKeywordRandomRow struct {
 	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
 	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
 }
 
-func (q *Queries) ListPublicUploadsByKeywordRandom(ctx context.Context, arg ListPublicUploadsByKeywordRandomParams) ([]ListPublicUploadsByKeywordRandomRow, error) {
-	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordRandom, arg.KeywordID, arg.Seed, arg.LimitCount)
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByKeywordLatestAfter(ctx context.Context, arg ListPublicUploadsByKeywordLatestAfterParams) ([]ListPublicUploadsByKeywordLatestAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordLatestAfter,
+		arg.KeywordID,
+		arg.CutoffAt,
+		arg.LastPublishedAt,
+		arg.LastID,
+		arg.LimitCount,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListPublicUploadsByKeywordRandomRow{}
+	items := []ListPublicUploadsByKeywordLatestAfterRow{}
 	for rows.Next() {
-		var i ListPublicUploadsByKeywordRandomRow
+		var i ListPublicUploadsByKeywordLatestAfterRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.BizDate,
@@ -712,6 +1229,446 @@ func (q *Queries) ListPublicUploadsByKeywordRandom(ctx context.Context, arg List
 			&i.ReactionInspiredCount,
 			&i.ReactionResonatedCount,
 			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByKeywordRandomHigh = `-- name: ListPublicUploadsByKeywordRandomHigh :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = $1::uuid
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key >= $3::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $4::int
+`
+
+type ListPublicUploadsByKeywordRandomHighParams struct {
+	KeywordID  uuid.UUID          `json:"keyword_id"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	Seed       float64            `json:"seed"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByKeywordRandomHighRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByKeywordRandomHigh(ctx context.Context, arg ListPublicUploadsByKeywordRandomHighParams) ([]ListPublicUploadsByKeywordRandomHighRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordRandomHigh,
+		arg.KeywordID,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByKeywordRandomHighRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByKeywordRandomHighRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByKeywordRandomHighAfter = `-- name: ListPublicUploadsByKeywordRandomHighAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = $1::uuid
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key >= $3::double precision
+  AND (wu.rand_key, wu.id) > ($4::double precision, $5::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $6::int
+`
+
+type ListPublicUploadsByKeywordRandomHighAfterParams struct {
+	KeywordID   uuid.UUID          `json:"keyword_id"`
+	CutoffAt    pgtype.Timestamptz `json:"cutoff_at"`
+	Seed        float64            `json:"seed"`
+	LastRandKey float64            `json:"last_rand_key"`
+	LastID      uuid.UUID          `json:"last_id"`
+	LimitCount  int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByKeywordRandomHighAfterRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByKeywordRandomHighAfter(ctx context.Context, arg ListPublicUploadsByKeywordRandomHighAfterParams) ([]ListPublicUploadsByKeywordRandomHighAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordRandomHighAfter,
+		arg.KeywordID,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LastRandKey,
+		arg.LastID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByKeywordRandomHighAfterRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByKeywordRandomHighAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByKeywordRandomLow = `-- name: ListPublicUploadsByKeywordRandomLow :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = $1::uuid
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key < $3::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $4::int
+`
+
+type ListPublicUploadsByKeywordRandomLowParams struct {
+	KeywordID  uuid.UUID          `json:"keyword_id"`
+	CutoffAt   pgtype.Timestamptz `json:"cutoff_at"`
+	Seed       float64            `json:"seed"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByKeywordRandomLowRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByKeywordRandomLow(ctx context.Context, arg ListPublicUploadsByKeywordRandomLowParams) ([]ListPublicUploadsByKeywordRandomLowRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordRandomLow,
+		arg.KeywordID,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByKeywordRandomLowRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByKeywordRandomLowRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublicUploadsByKeywordRandomLowAfter = `-- name: ListPublicUploadsByKeywordRandomLowAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = $1::uuid
+  AND wu.published_at <= $2::timestamptz
+  AND wu.rand_key < $3::double precision
+  AND (wu.rand_key, wu.id) > ($4::double precision, $5::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT $6::int
+`
+
+type ListPublicUploadsByKeywordRandomLowAfterParams struct {
+	KeywordID   uuid.UUID          `json:"keyword_id"`
+	CutoffAt    pgtype.Timestamptz `json:"cutoff_at"`
+	Seed        float64            `json:"seed"`
+	LastRandKey float64            `json:"last_rand_key"`
+	LastID      uuid.UUID          `json:"last_id"`
+	LimitCount  int32              `json:"limit_count"`
+}
+
+type ListPublicUploadsByKeywordRandomLowAfterRow struct {
+	ID                     uuid.UUID          `json:"id"`
+	BizDate                pgtype.Date        `json:"biz_date"`
+	KeywordID              pgtype.UUID        `json:"keyword_id"`
+	CoverImageID           uuid.UUID          `json:"cover_image_id"`
+	DisplayText            interface{}        `json:"display_text"`
+	CoverHasAudio          bool               `json:"cover_has_audio"`
+	CoverAudioDurationMs   pgtype.Int4        `json:"cover_audio_duration_ms"`
+	CoverObjectKey         string             `json:"cover_object_key"`
+	ImageCount             int32              `json:"image_count"`
+	ReactionInspiredCount  int32              `json:"reaction_inspired_count"`
+	ReactionResonatedCount int32              `json:"reaction_resonated_count"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	PublishedAt            pgtype.Timestamptz `json:"published_at"`
+	RandKey                float64            `json:"rand_key"`
+}
+
+// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+// still runs after both cover-image and cover-asset validity filters.
+func (q *Queries) ListPublicUploadsByKeywordRandomLowAfter(ctx context.Context, arg ListPublicUploadsByKeywordRandomLowAfterParams) ([]ListPublicUploadsByKeywordRandomLowAfterRow, error) {
+	rows, err := q.db.Query(ctx, listPublicUploadsByKeywordRandomLowAfter,
+		arg.KeywordID,
+		arg.CutoffAt,
+		arg.Seed,
+		arg.LastRandKey,
+		arg.LastID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublicUploadsByKeywordRandomLowAfterRow{}
+	for rows.Next() {
+		var i ListPublicUploadsByKeywordRandomLowAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BizDate,
+			&i.KeywordID,
+			&i.CoverImageID,
+			&i.DisplayText,
+			&i.CoverHasAudio,
+			&i.CoverAudioDurationMs,
+			&i.CoverObjectKey,
+			&i.ImageCount,
+			&i.ReactionInspiredCount,
+			&i.ReactionResonatedCount,
+			&i.CreatedAt,
+			&i.PublishedAt,
+			&i.RandKey,
 		); err != nil {
 			return nil, err
 		}

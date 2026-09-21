@@ -31,11 +31,12 @@ func userIDFromContext(c *gin.Context) (uuid.UUID, bool) {
 	return id, true
 }
 
-func stringValue[T ~string](v *T) string {
+func stringPointer[T ~string](v *T) *string {
 	if v == nil {
-		return ""
+		return nil
 	}
-	return string(*v)
+	s := string(*v)
+	return &s
 }
 
 func ptrIntValue(v *int) int {

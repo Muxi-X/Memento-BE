@@ -164,7 +164,7 @@ func TestOfficialHomeLazyAssignmentUsesChronologicalOrder(t *testing.T) {
 		t.Fatalf("InitializeRotation() error = %v", err)
 	}
 
-	readService := readmodelapp.NewService(readmodelrepo.NewRepository(readmodeldb.New(pool)), platformoss.NewURLResolver(platformoss.URLResolverConfig{PublicBaseURL: "https://cdn.test.local"}), catalog, func() time.Time { return now })
+	readService := readmodelapp.NewService(readmodelrepo.NewRepository(readmodeldb.New(pool), pool), platformoss.NewURLResolver(platformoss.URLResolverConfig{PublicBaseURL: "https://cdn.test.local"}), catalog, func() time.Time { return now })
 	home, err := readService.GetOfficialHome(ctx, &target)
 	if err != nil {
 		t.Fatalf("GetOfficialHome() error = %v", err)

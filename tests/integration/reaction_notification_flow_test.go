@@ -49,7 +49,7 @@ func TestReactionNotificationFlow(t *testing.T) {
 	notificationSvc := socialapp.NewNotificationService(pool, resolver, func() time.Time { return now })
 	profileSvc := profileapp.NewService(profilerepo.NewRepository(profiledb.New(pool)), resolver)
 	readSvc := readmodelapp.NewService(
-		readmodelrepo.NewRepository(readmodeldb.New(pool)),
+		readmodelrepo.NewRepository(readmodeldb.New(pool), pool),
 		resolver,
 		officialCatalog,
 		func() time.Time { return now },
