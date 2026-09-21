@@ -51,12 +51,12 @@ func TestMeSettingsFlow(t *testing.T) {
 		t.Fatalf("GetSettings() reaction enabled = false, want true")
 	}
 
-	updatedNotifications, err := profileSvc.UpdateReactionNotifications(ctx, userID, boolPtr(false))
+	updatedNotifications, err := profileSvc.UpdateNotificationSettings(ctx, userID, profileapp.NotificationSettingsPatch{ReactionEnabled: boolPtr(false)})
 	if err != nil {
-		t.Fatalf("UpdateReactionNotifications(false) error = %v", err)
+		t.Fatalf("UpdateNotificationSettings(reaction false) error = %v", err)
 	}
 	if updatedNotifications.Notifications.ReactionEnabled {
-		t.Fatalf("UpdateReactionNotifications(false) reaction enabled = true, want false")
+		t.Fatalf("UpdateNotificationSettings(reaction false) reaction enabled = true, want false")
 	}
 
 	updatedProfile, err := profileSvc.UpdateNickname(ctx, userID, "Renamed Actor")
@@ -68,8 +68,8 @@ func TestMeSettingsFlow(t *testing.T) {
 	}
 
 	uploadID := createVisibleOfficialUploadForTest(t, ctx, pool, storage, authorID, keywordID, bizDate, now)
-	if _, err := profileSvc.UpdateReactionNotifications(ctx, authorID, boolPtr(true)); err != nil {
-		t.Fatalf("UpdateReactionNotifications(author true) error = %v", err)
+	if _, err := profileSvc.UpdateNotificationSettings(ctx, authorID, profileapp.NotificationSettingsPatch{ReactionEnabled: boolPtr(true)}); err != nil {
+		t.Fatalf("UpdateNotificationSettings(author reaction true) error = %v", err)
 	}
 	if err := reactionSvc.React(ctx, userID, uploadID, "inspired"); err != nil {
 		t.Fatalf("React(after nickname update) error = %v", err)

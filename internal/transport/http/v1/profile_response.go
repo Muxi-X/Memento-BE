@@ -28,6 +28,7 @@ func meProfileResponse(out profileapp.ProfileOutput) v1gen.MeProfile {
 
 func meNotificationSettingsResponse(out profileapp.NotificationSettingsOutput) v1gen.MeNotificationSettings {
 	return v1gen.MeNotificationSettings{
-		ReactionEnabled: out.ReactionEnabled,
+		ReactionEnabled:         out.ReactionEnabled,
+		CreationReminderEnabled: out.CreationReminderEnabled,
 	}
 }

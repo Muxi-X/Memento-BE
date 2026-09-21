@@ -20,7 +20,7 @@ type Querier interface {
 	SetAvatarUploadSessionImage(ctx context.Context, arg SetAvatarUploadSessionImageParams) (AvatarUploadSession, error)
 	UpdateUserAvatarAsset(ctx context.Context, arg UpdateUserAvatarAssetParams) (int64, error)
 	UpdateUserNickname(ctx context.Context, arg UpdateUserNicknameParams) (int64, error)
-	UpdateUserReactionNotifications(ctx context.Context, arg UpdateUserReactionNotificationsParams) (int64, error)
+	UpdateUserNotificationSettings(ctx context.Context, arg UpdateUserNotificationSettingsParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)
