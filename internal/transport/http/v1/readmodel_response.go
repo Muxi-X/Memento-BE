@@ -58,8 +58,10 @@ func publicUploadListResponse(out *readmodelapp.PublicUploadListOutput) v1gen.Li
 		items = append(items, publicUploadCardResponse(item))
 	}
 	return v1gen.ListPublicUploadsResponse{
-		Items: items,
-		Seed:  out.Seed,
+		Items:      items,
+		Seed:       out.Seed,
+		NextCursor: out.NextCursor,
+		HasMore:    out.HasMore,
 	}
 }
 

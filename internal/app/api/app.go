@@ -149,7 +149,7 @@ func RunWithConfig(ctx context.Context, cfg *config.Config) error {
 	})
 
 	officialModuleRepo := officialrepo.NewRepository(officialdb.New(pool))
-	readmodelModuleRepo := readmodelrepo.NewRepository(readmodeldb.New(pool))
+	readmodelModuleRepo := readmodelrepo.NewRepository(readmodeldb.New(pool), pool)
 	officialCatalog := officialapp.NewCatalogService(pool, officialModuleRepo, nil)
 	if err := officialCatalog.EnsureRotationInitialized(ctx); err != nil {
 		return err

@@ -46,7 +46,7 @@ func TestCustomKeywordFlow(t *testing.T) {
 		t.Fatalf("NewUploadSessionService() error = %v", err)
 	}
 	readSvc := readmodelapp.NewService(
-		readmodelrepo.NewRepository(readmodeldb.New(pool)),
+		readmodelrepo.NewRepository(readmodeldb.New(pool), pool),
 		resolver,
 		nil,
 		func() time.Time { return now },

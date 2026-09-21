@@ -10,6 +10,9 @@ SELECT
 FROM official_keywords
 WHERE id = $1;
 
+-- name: GetPublicUploadsCutoff :one
+SELECT clock_timestamp()::timestamptz AS cutoff_at;
+
 -- name: ListPublicUploadsByDateLatest :many
 SELECT
   wu.id,
@@ -23,12 +26,21 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -37,11 +49,12 @@ JOIN media_assets cover_asset
 WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
-  AND wu.biz_date = $1
+  AND wu.biz_date = sqlc.arg(biz_date)::date
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
 ORDER BY wu.published_at DESC, wu.id DESC
-LIMIT $2;
+LIMIT sqlc.arg(limit_count)::int;
 
--- name: ListPublicUploadsByDateRandom :many
+-- name: ListPublicUploadsByDateLatestAfter :many
 SELECT
   wu.id,
   wu.biz_date,
@@ -54,12 +67,21 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -69,10 +91,179 @@ WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
   AND wu.biz_date = sqlc.arg(biz_date)::date
-ORDER BY
-  CASE WHEN wu.rand_key < sqlc.arg(seed)::double precision THEN 1 ELSE 0 END ASC,
-  wu.rand_key ASC,
-  wu.id ASC
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND (wu.published_at, wu.id) < (sqlc.arg(last_published_at)::timestamptz, sqlc.arg(last_id)::uuid)
+ORDER BY wu.published_at DESC, wu.id DESC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByDateRandomHigh :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = sqlc.arg(biz_date)::date
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key >= sqlc.arg(seed)::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByDateRandomHighAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = sqlc.arg(biz_date)::date
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key >= sqlc.arg(seed)::double precision
+  AND (wu.rand_key, wu.id) > (sqlc.arg(last_rand_key)::double precision, sqlc.arg(last_id)::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByDateRandomLow :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = sqlc.arg(biz_date)::date
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key < sqlc.arg(seed)::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByDateRandomLowAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.biz_date = sqlc.arg(biz_date)::date
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key < sqlc.arg(seed)::double precision
+  AND (wu.rand_key, wu.id) > (sqlc.arg(last_rand_key)::double precision, sqlc.arg(last_id)::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
 LIMIT sqlc.arg(limit_count)::int;
 
 -- name: ListPublicUploadsByKeywordLatest :many
@@ -88,12 +279,21 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -102,11 +302,12 @@ JOIN media_assets cover_asset
 WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
-  AND wu.official_keyword_id = $1
+  AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
 ORDER BY wu.published_at DESC, wu.id DESC
-LIMIT $2;
+LIMIT sqlc.arg(limit_count)::int;
 
--- name: ListPublicUploadsByKeywordRandom :many
+-- name: ListPublicUploadsByKeywordLatestAfter :many
 SELECT
   wu.id,
   wu.biz_date,
@@ -119,12 +320,21 @@ SELECT
   wu.image_count,
   wu.reaction_inspired_count,
   wu.reaction_resonated_count,
-  wu.published_at AS created_at
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
 FROM work_uploads wu
-JOIN work_upload_images cover_image
-  ON cover_image.upload_id = wu.id
- AND cover_image.image_asset_id = wu.cover_asset_id
- AND cover_image.deleted_at IS NULL
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
 LEFT JOIN work_upload_image_contents cover_content
   ON cover_content.work_upload_image_id = cover_image.id
 JOIN media_assets cover_asset
@@ -134,10 +344,179 @@ WHERE wu.context_type = 'official_today'
   AND wu.visibility_status = 'visible'
   AND wu.deleted_at IS NULL
   AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
-ORDER BY
-  CASE WHEN wu.rand_key < sqlc.arg(seed)::double precision THEN 1 ELSE 0 END ASC,
-  wu.rand_key ASC,
-  wu.id ASC
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND (wu.published_at, wu.id) < (sqlc.arg(last_published_at)::timestamptz, sqlc.arg(last_id)::uuid)
+ORDER BY wu.published_at DESC, wu.id DESC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByKeywordRandomHigh :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key >= sqlc.arg(seed)::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByKeywordRandomHighAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key >= sqlc.arg(seed)::double precision
+  AND (wu.rand_key, wu.id) > (sqlc.arg(last_rand_key)::double precision, sqlc.arg(last_id)::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByKeywordRandomLow :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key < sqlc.arg(seed)::double precision
+ORDER BY wu.rand_key ASC, wu.id ASC
+LIMIT sqlc.arg(limit_count)::int;
+
+-- name: ListPublicUploadsByKeywordRandomLowAfter :many
+SELECT
+  wu.id,
+  wu.biz_date,
+  wu.official_keyword_id AS keyword_id,
+  cover_image.id AS cover_image_id,
+  COALESCE(NULLIF(btrim(cover_content.title), ''), NULLIF(btrim(cover_content.note), '')) AS display_text,
+  CASE WHEN cover_content.audio_asset_id IS NOT NULL THEN TRUE ELSE FALSE END AS cover_has_audio,
+  cover_content.audio_duration_ms AS cover_audio_duration_ms,
+  cover_asset.original_object_key AS cover_object_key,
+  wu.image_count,
+  wu.reaction_inspired_count,
+  wu.reaction_resonated_count,
+  wu.published_at AS created_at,
+  wu.published_at,
+  wu.rand_key
+FROM work_uploads wu
+-- The unique (upload_id, image_asset_id) cover is resolved per candidate.
+-- LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+-- still runs after both cover-image and cover-asset validity filters.
+JOIN LATERAL (
+  SELECT id
+  FROM work_upload_images
+  WHERE upload_id = wu.id
+    AND image_asset_id = wu.cover_asset_id
+    AND deleted_at IS NULL
+  LIMIT 1
+) cover_image ON TRUE
+LEFT JOIN work_upload_image_contents cover_content
+  ON cover_content.work_upload_image_id = cover_image.id
+JOIN media_assets cover_asset
+  ON cover_asset.id = wu.cover_asset_id
+ AND cover_asset.deleted_at IS NULL
+WHERE wu.context_type = 'official_today'
+  AND wu.visibility_status = 'visible'
+  AND wu.deleted_at IS NULL
+  AND wu.official_keyword_id = sqlc.arg(keyword_id)::uuid
+  AND wu.published_at <= sqlc.arg(cutoff_at)::timestamptz
+  AND wu.rand_key < sqlc.arg(seed)::double precision
+  AND (wu.rand_key, wu.id) > (sqlc.arg(last_rand_key)::double precision, sqlc.arg(last_id)::uuid)
+ORDER BY wu.rand_key ASC, wu.id ASC
 LIMIT sqlc.arg(limit_count)::int;
 
 -- name: GetPublicUploadCard :one

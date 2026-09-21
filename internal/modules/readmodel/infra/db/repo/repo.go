@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	dofficial "cixing/internal/modules/official/domain"
 	readmodeldb "cixing/internal/modules/readmodel/infra/db/gen"
@@ -16,11 +17,12 @@ import (
 )
 
 type Repository struct {
-	q readmodeldb.Querier
+	q    readmodeldb.Querier
+	pool *pgxpool.Pool
 }
 
-func NewRepository(q readmodeldb.Querier) *Repository {
-	return &Repository{q: q}
+func NewRepository(q readmodeldb.Querier, pool *pgxpool.Pool) *Repository {
+	return &Repository{q: q, pool: pool}
 }
 
 type OfficialHomeDay struct {

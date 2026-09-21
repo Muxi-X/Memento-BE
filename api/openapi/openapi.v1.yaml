@@ -1044,7 +1044,7 @@ components:
 
     ListPublicUploadsResponse:
       type: object
-      required: [items]
+      required: [items, seed, next_cursor, has_more]
       properties:
         items:
           type: array
@@ -1054,6 +1054,12 @@ components:
           type: number
           format: double
           nullable: true
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque continuation cursor; null on the last page.
+        has_more:
+          type: boolean
 
     MyWorkUploadCard:
       type: object
@@ -2899,13 +2905,24 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: cursor
+          in: query
+          required: false
+          allowEmptyValue: true
+          description: |
+            Opaque base64url cursor, at most 2048 bytes. Omit to start a new round.
+            Invalid cursors return 400 readmodel.invalid_cursor; scope or explicit
+            sort/seed conflicts return 400 readmodel.cursor_mismatch.
+            Each round uses a database-time upper bound, not a cross-request snapshot.
+          schema:
+            type: string
         - name: sort
+          description: Defaults to latest without a cursor; otherwise restored from the cursor. Explicit values must match.
           in: query
           required: false
           schema:
             type: string
             enum: [latest, random]
-            default: latest
         - name: limit
           in: query
           required: false
@@ -2915,6 +2932,7 @@ paths:
             maximum: 50
             default: 20
         - name: seed
+          description: Random only; finite double in [0,1). Generated on first request or restored from cursor. Explicit random values must match. Ignored for latest.
           in: query
           required: false
           schema:
@@ -2936,6 +2954,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListPublicUploadsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -3299,13 +3319,24 @@ paths:
           schema:
             type: string
             format: date
+        - name: cursor
+          in: query
+          required: false
+          allowEmptyValue: true
+          description: |
+            Opaque base64url cursor, at most 2048 bytes. Omit to start a new round.
+            Invalid cursors return 400 readmodel.invalid_cursor; scope or explicit
+            sort/seed conflicts return 400 readmodel.cursor_mismatch.
+            Each round uses a database-time upper bound, not a cross-request snapshot.
+          schema:
+            type: string
         - name: sort
+          description: Defaults to latest without a cursor; otherwise restored from the cursor. Explicit values must match.
           in: query
           required: false
           schema:
             type: string
             enum: [latest, random]
-            default: latest
         - name: limit
           in: query
           required: false
@@ -3315,6 +3346,7 @@ paths:
             maximum: 50
             default: 20
         - name: seed
+          description: Random only; finite double in [0,1). Generated on first request or restored from cursor. Explicit random values must match. Ignored for latest.
           in: query
           required: false
           schema:
@@ -3337,6 +3369,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListPublicUploadsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -3453,5 +3487,4 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
-
 

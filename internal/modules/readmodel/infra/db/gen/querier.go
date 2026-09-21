@@ -22,6 +22,7 @@ type Querier interface {
 	// Shared upload readmodel queries
 	GetOfficialKeyword(ctx context.Context, id uuid.UUID) (GetOfficialKeywordRow, error)
 	GetPublicUploadCard(ctx context.Context, id uuid.UUID) (GetPublicUploadCardRow, error)
+	GetPublicUploadsCutoff(ctx context.Context) (pgtype.Timestamptz, error)
 	ListMeHomeCustomKeywords(ctx context.Context, ownerUserID uuid.UUID) ([]ListMeHomeCustomKeywordsRow, error)
 	ListMyReactionTypesByUploadIDs(ctx context.Context, arg ListMyReactionTypesByUploadIDsParams) ([]ListMyReactionTypesByUploadIDsRow, error)
 	// Review page readmodel
@@ -29,10 +30,54 @@ type Querier interface {
 	ListMyReviewKeywordCounts(ctx context.Context, authorUserID uuid.UUID) ([]ListMyReviewKeywordCountsRow, error)
 	ListMyReviewUploadsByDate(ctx context.Context, arg ListMyReviewUploadsByDateParams) ([]ListMyReviewUploadsByDateRow, error)
 	ListMyReviewUploadsByKeyword(ctx context.Context, arg ListMyReviewUploadsByKeywordParams) ([]ListMyReviewUploadsByKeywordRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
 	ListPublicUploadsByDateLatest(ctx context.Context, arg ListPublicUploadsByDateLatestParams) ([]ListPublicUploadsByDateLatestRow, error)
-	ListPublicUploadsByDateRandom(ctx context.Context, arg ListPublicUploadsByDateRandomParams) ([]ListPublicUploadsByDateRandomRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByDateLatestAfter(ctx context.Context, arg ListPublicUploadsByDateLatestAfterParams) ([]ListPublicUploadsByDateLatestAfterRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByDateRandomHigh(ctx context.Context, arg ListPublicUploadsByDateRandomHighParams) ([]ListPublicUploadsByDateRandomHighRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByDateRandomHighAfter(ctx context.Context, arg ListPublicUploadsByDateRandomHighAfterParams) ([]ListPublicUploadsByDateRandomHighAfterRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByDateRandomLow(ctx context.Context, arg ListPublicUploadsByDateRandomLowParams) ([]ListPublicUploadsByDateRandomLowRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByDateRandomLowAfter(ctx context.Context, arg ListPublicUploadsByDateRandomLowAfterParams) ([]ListPublicUploadsByDateRandomLowAfterRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
 	ListPublicUploadsByKeywordLatest(ctx context.Context, arg ListPublicUploadsByKeywordLatestParams) ([]ListPublicUploadsByKeywordLatestRow, error)
-	ListPublicUploadsByKeywordRandom(ctx context.Context, arg ListPublicUploadsByKeywordRandomParams) ([]ListPublicUploadsByKeywordRandomRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByKeywordLatestAfter(ctx context.Context, arg ListPublicUploadsByKeywordLatestAfterParams) ([]ListPublicUploadsByKeywordLatestAfterRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByKeywordRandomHigh(ctx context.Context, arg ListPublicUploadsByKeywordRandomHighParams) ([]ListPublicUploadsByKeywordRandomHighRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByKeywordRandomHighAfter(ctx context.Context, arg ListPublicUploadsByKeywordRandomHighAfterParams) ([]ListPublicUploadsByKeywordRandomHighAfterRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByKeywordRandomLow(ctx context.Context, arg ListPublicUploadsByKeywordRandomLowParams) ([]ListPublicUploadsByKeywordRandomLowRow, error)
+	// The unique (upload_id, image_asset_id) cover is resolved per candidate.
+	// LIMIT 1 prevents flattening this correlated lookup; the page LIMIT below
+	// still runs after both cover-image and cover-asset validity filters.
+	ListPublicUploadsByKeywordRandomLowAfter(ctx context.Context, arg ListPublicUploadsByKeywordRandomLowAfterParams) ([]ListPublicUploadsByKeywordRandomLowAfterRow, error)
 	ListUploadImages(ctx context.Context, uploadID uuid.UUID) ([]ListUploadImagesRow, error)
 }
 

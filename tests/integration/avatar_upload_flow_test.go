@@ -36,7 +36,7 @@ func TestAvatarUploadFlowCompletesAndRefreshesProfile(t *testing.T) {
 	})
 	avatarSvc := newAvatarUploadServiceForTest(t, pool, storage, resolver, now)
 	profileSvc := profileapp.NewService(profilerepo.NewRepository(profiledb.New(pool)), resolver)
-	readmodelSvc := readmodelapp.NewService(readmodelrepo.NewRepository(readmodeldb.New(pool)), resolver, nil, nil)
+	readmodelSvc := readmodelapp.NewService(readmodelrepo.NewRepository(readmodeldb.New(pool), pool), resolver, nil, nil)
 
 	created, err := avatarSvc.Create(ctx, userID)
 	if err != nil {

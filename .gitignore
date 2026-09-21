@@ -33,7 +33,8 @@ configs/config.local.yaml
 Thumbs.db
 .idea/
 .vscode/
-/docs/
+/docs/*
+!/docs/公开作品列表游标分页接口变更.md
 
 # Claude Code
 CLAUDE.md

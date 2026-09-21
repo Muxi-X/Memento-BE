@@ -6,6 +6,7 @@ sql:
       - "db/migrations/000001_core.up.sql"
       - "db/migrations/000005_daily_prompts_analytics.up.sql"
       - "db/migrations/000006_official_keyword_rotation.up.sql"
+      - "db/migrations/000007_public_upload_pagination.up.sql"
     queries:
       - "internal/modules/auth/infra/db/query/*.sql"
     gen:
