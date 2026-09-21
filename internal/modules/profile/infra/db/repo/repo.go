@@ -21,6 +21,7 @@ type SettingsRow struct {
 	Email                       *string
 	AvatarObjectKey             *string
 	ReactionNotificationEnabled bool
+	CreationReminderEnabled     bool
 }
 
 func NewRepository(q profiledb.Querier) *Repository {
@@ -40,13 +41,15 @@ func (r *Repository) GetSettings(ctx context.Context, userID uuid.UUID) (Setting
 		Email:                       textPtr(row.Email),
 		AvatarObjectKey:             textPtr(row.AvatarObjectKey),
 		ReactionNotificationEnabled: row.ReactionNotificationEnabled,
+		CreationReminderEnabled:     row.CreationReminderEnabled,
 	}, nil
 }
 
-func (r *Repository) UpdateReactionNotifications(ctx context.Context, userID uuid.UUID, enabled bool) (SettingsRow, error) {
-	affected, err := r.q.UpdateUserReactionNotifications(ctx, profiledb.UpdateUserReactionNotificationsParams{
+func (r *Repository) UpdateNotificationSettings(ctx context.Context, userID uuid.UUID, reactionEnabled, creationReminderEnabled *bool) (SettingsRow, error) {
+	affected, err := r.q.UpdateUserNotificationSettings(ctx, profiledb.UpdateUserNotificationSettingsParams{
 		UserID:                      userID,
-		ReactionNotificationEnabled: enabled,
+		ReactionNotificationEnabled: optionalBool(reactionEnabled),
+		CreationReminderEnabled:     optionalBool(creationReminderEnabled),
 	})
 	if err != nil {
 		return SettingsRow{}, err
@@ -77,4 +80,11 @@ func textPtr(v pgtype.Text) *string {
 	}
 	s := v.String
 	return &s
+}
+
+func optionalBool(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
 }

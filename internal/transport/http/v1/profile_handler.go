@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	profileapp "cixing/internal/modules/profile/application"
 	"cixing/internal/transport/http/server/response"
 	v1gen "cixing/internal/transport/http/v1/gen"
 )
@@ -35,7 +36,10 @@ func (h *Handler) UpdateMeNotificationSettings(c *gin.Context, _ v1gen.UpdateMeN
 	if !bindJSON(c, &req) {
 		return
 	}
-	out, err := h.Profile.UpdateReactionNotifications(c.Request.Context(), userID, &req.ReactionEnabled)
+	out, err := h.Profile.UpdateNotificationSettings(c.Request.Context(), userID, profileapp.NotificationSettingsPatch{
+		ReactionEnabled:         req.ReactionEnabled,
+		CreationReminderEnabled: req.CreationReminderEnabled,
+	})
 	if err != nil {
 		writeProfileError(c, err)
 		return

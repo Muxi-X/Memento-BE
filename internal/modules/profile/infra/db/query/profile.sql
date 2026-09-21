@@ -5,7 +5,8 @@ SELECT
   up.nickname,
   uei.email,
   ma.original_object_key AS avatar_object_key,
-  us.reaction_notification_enabled
+  us.reaction_notification_enabled,
+  us.creation_reminder_enabled
 FROM user_profiles up
 JOIN user_settings us
   ON us.user_id = up.user_id
@@ -16,10 +17,11 @@ LEFT JOIN media_assets ma
  AND ma.deleted_at IS NULL
 WHERE up.user_id = $1;
 
--- name: UpdateUserReactionNotifications :execrows
+-- name: UpdateUserNotificationSettings :execrows
 UPDATE user_settings
-SET reaction_notification_enabled = $2
-WHERE user_id = $1;
+SET reaction_notification_enabled = COALESCE(sqlc.narg(reaction_notification_enabled)::boolean, reaction_notification_enabled),
+    creation_reminder_enabled = COALESCE(sqlc.narg(creation_reminder_enabled)::boolean, creation_reminder_enabled)
+WHERE user_id = sqlc.arg(user_id)::uuid;
 
 -- name: UpdateUserNickname :execrows
 UPDATE user_profiles

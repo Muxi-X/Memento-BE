@@ -1417,10 +1417,14 @@ components:
 
     MeNotificationSettings:
       type: object
-      required: [reaction_enabled]
+      required: [reaction_enabled, creation_reminder_enabled]
       properties:
         reaction_enabled:
           type: boolean
+          description: Whether to create in-app notifications for received reactions.
+        creation_reminder_enabled:
+          type: boolean
+          description: Whether the client should schedule the daily 12:00 creation reminder. This setting does not grant device notification permission or send a server push.
 
     AvatarUploadSessionStatus:
       type: string
@@ -1464,9 +1468,13 @@ components:
 
     UpdateMeNotificationSettingsRequest:
       type: object
-      required: [reaction_enabled]
+      description: Update one or both notification preferences. Omitted fields keep their current values; explicit null is not accepted.
+      minProperties: 1
+      additionalProperties: false
       properties:
         reaction_enabled:
+          type: boolean
+        creation_reminder_enabled:
           type: boolean
 
     CreateAvatarUploadSessionResponse:

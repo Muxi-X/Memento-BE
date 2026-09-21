@@ -133,8 +133,8 @@ func TestReactionNotificationFlow(t *testing.T) {
 		t.Fatalf("List(author notifications after self react) items = %d, want 2", len(notificationsAfterSelfReact.Items))
 	}
 
-	if _, err := profileSvc.UpdateReactionNotifications(ctx, authorID, boolPtr(false)); err != nil {
-		t.Fatalf("UpdateReactionNotifications(false) error = %v", err)
+	if _, err := profileSvc.UpdateNotificationSettings(ctx, authorID, profileapp.NotificationSettingsPatch{ReactionEnabled: boolPtr(false)}); err != nil {
+		t.Fatalf("UpdateNotificationSettings(reaction false) error = %v", err)
 	}
 	if err := reactionSvc.React(ctx, actorID, secondUploadID, "inspired"); err != nil {
 		t.Fatalf("React(second upload inspired) error = %v", err)

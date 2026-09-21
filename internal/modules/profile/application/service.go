@@ -26,7 +26,13 @@ type ProfileOutput struct {
 }
 
 type NotificationSettingsOutput struct {
-	ReactionEnabled bool
+	ReactionEnabled         bool
+	CreationReminderEnabled bool
+}
+
+type NotificationSettingsPatch struct {
+	ReactionEnabled         *bool
+	CreationReminderEnabled *bool
 }
 
 type SettingsOutput struct {
@@ -46,11 +52,11 @@ func (s *Service) GetSettings(ctx context.Context, userID uuid.UUID) (*SettingsO
 	return &out, nil
 }
 
-func (s *Service) UpdateReactionNotifications(ctx context.Context, userID uuid.UUID, enabled *bool) (*SettingsOutput, error) {
-	if userID == uuid.Nil || enabled == nil {
+func (s *Service) UpdateNotificationSettings(ctx context.Context, userID uuid.UUID, patch NotificationSettingsPatch) (*SettingsOutput, error) {
+	if userID == uuid.Nil || (patch.ReactionEnabled == nil && patch.CreationReminderEnabled == nil) {
 		return nil, ErrInvalidInput
 	}
-	row, err := s.repo.UpdateReactionNotifications(ctx, userID, *enabled)
+	row, err := s.repo.UpdateNotificationSettings(ctx, userID, patch.ReactionEnabled, patch.CreationReminderEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +82,11 @@ func (s *Service) UpdateNickname(ctx context.Context, userID uuid.UUID, nickname
 
 func (s *Service) settingsOutput(row repo.SettingsRow) SettingsOutput {
 	return SettingsOutput{
-		Profile:       s.profileOutput(row),
-		Notifications: NotificationSettingsOutput{ReactionEnabled: row.ReactionNotificationEnabled},
+		Profile: s.profileOutput(row),
+		Notifications: NotificationSettingsOutput{
+			ReactionEnabled:         row.ReactionNotificationEnabled,
+			CreationReminderEnabled: row.CreationReminderEnabled,
+		},
 	}
 }
 

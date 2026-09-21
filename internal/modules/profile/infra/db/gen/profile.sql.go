@@ -127,7 +127,8 @@ SELECT
   up.nickname,
   uei.email,
   ma.original_object_key AS avatar_object_key,
-  us.reaction_notification_enabled
+  us.reaction_notification_enabled,
+  us.creation_reminder_enabled
 FROM user_profiles up
 JOIN user_settings us
   ON us.user_id = up.user_id
@@ -144,6 +145,7 @@ type GetProfileSettingsRow struct {
 	Email                       pgtype.Text `json:"email"`
 	AvatarObjectKey             pgtype.Text `json:"avatar_object_key"`
 	ReactionNotificationEnabled bool        `json:"reaction_notification_enabled"`
+	CreationReminderEnabled     bool        `json:"creation_reminder_enabled"`
 }
 
 // Profile / settings
@@ -155,6 +157,7 @@ func (q *Queries) GetProfileSettings(ctx context.Context, userID uuid.UUID) (Get
 		&i.Email,
 		&i.AvatarObjectKey,
 		&i.ReactionNotificationEnabled,
+		&i.CreationReminderEnabled,
 	)
 	return i, err
 }
@@ -227,19 +230,21 @@ func (q *Queries) UpdateUserNickname(ctx context.Context, arg UpdateUserNickname
 	return result.RowsAffected(), nil
 }
 
-const updateUserReactionNotifications = `-- name: UpdateUserReactionNotifications :execrows
+const updateUserNotificationSettings = `-- name: UpdateUserNotificationSettings :execrows
 UPDATE user_settings
-SET reaction_notification_enabled = $2
-WHERE user_id = $1
+SET reaction_notification_enabled = COALESCE($1::boolean, reaction_notification_enabled),
+    creation_reminder_enabled = COALESCE($2::boolean, creation_reminder_enabled)
+WHERE user_id = $3::uuid
 `
 
-type UpdateUserReactionNotificationsParams struct {
-	UserID                      uuid.UUID `json:"user_id"`
-	ReactionNotificationEnabled bool      `json:"reaction_notification_enabled"`
+type UpdateUserNotificationSettingsParams struct {
+	ReactionNotificationEnabled pgtype.Bool `json:"reaction_notification_enabled"`
+	CreationReminderEnabled     pgtype.Bool `json:"creation_reminder_enabled"`
+	UserID                      uuid.UUID   `json:"user_id"`
 }
 
-func (q *Queries) UpdateUserReactionNotifications(ctx context.Context, arg UpdateUserReactionNotificationsParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateUserReactionNotifications, arg.UserID, arg.ReactionNotificationEnabled)
+func (q *Queries) UpdateUserNotificationSettings(ctx context.Context, arg UpdateUserNotificationSettingsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserNotificationSettings, arg.ReactionNotificationEnabled, arg.CreationReminderEnabled, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
